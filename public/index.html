@@ -191,6 +191,15 @@ es.onmessage = (e) => {
   } else if (ev.type === 'clear') {
     log.innerHTML = ''
     current = null
+    state.image = state.video = state.web = null
+    document.getElementById('imageLabel').textContent = 'Nothing set'
+    document.getElementById('imageBody').innerHTML = '<span class="empty">Nothing set — ask Claude to show an image</span>'
+    document.getElementById('videoLabel').textContent = 'Nothing set'
+    document.getElementById('videoBody').innerHTML = '<span class="empty">Nothing set — ask Claude to show a video</span>'
+    document.getElementById('webLabel').textContent = 'Nothing set'
+    document.getElementById('webPort').value = ''
+    document.getElementById('webFrame').src = 'about:blank'
+    tabs.forEach(b => (b.querySelector('.dot').style.display = 'none'))
   } else if (ev.type === 'user') {
     current = null
     line('user', '> ' + ev.text)

@@ -251,10 +251,13 @@ app.post('/message', (req, res) => {
   if (typeof text !== 'string' || !text.trim()) {
     return res.status(400).json({ error: 'text required' })
   }
-  // /clear resets the SDK context — wipe the UI log and replay buffer too,
-  // so reloads (and other connected browsers) start blank as well.
+  // /clear resets the SDK context — wipe the UI log, the replay buffer,
+  // and all previews, so everything starts blank everywhere.
   if (text.trim() === '/clear') {
     history.length = 0
+    latestMedia.image = null
+    latestMedia.video = null
+    webPort = null
     broadcast({ type: 'clear' })
   }
   broadcast({ type: 'user', text })
