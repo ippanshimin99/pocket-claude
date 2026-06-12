@@ -104,6 +104,11 @@ Restart the server after changing config (a fresh session is created).
 - Auth/billing rides on your local Claude Code login (subscription or API —
   whatever your CLI uses).
 
+## Questions / Feedback
+
+- Bugs and feature requests → [GitHub Issues](https://github.com/KanW123/pocket-claude/issues)
+- Anything else → [@ailovedirector](https://x.com/ailovedirector) on X (Japanese / English OK)
+
 ## License
 
 pocket-claude is an unofficial community project, not affiliated with or endorsed
