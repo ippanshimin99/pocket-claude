@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
+import { request as httpRequest } from 'node:http'
 import { homedir } from 'node:os'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import express from 'express'
 import { query } from '@anthropic-ai/claude-agent-sdk'
@@ -121,8 +122,16 @@ const q = query({
     systemPrompt: {
       type: 'preset',
       preset: 'claude_code',
-      append:
+      append: [
         'When mentioning file paths in your responses, always use paths relative to the working directory. Never print absolute paths (they may be screen-captured).',
+        '',
+        'The user is on a remote web UI (pocket-claude) with preview tabs: Image, Movie, Web.',
+        'When the user asks to see/check an image, video, or a running web app, set it into the matching tab via Bash:',
+        `  curl -s -X POST http://127.0.0.1:${config.port}/preview/set -H "Content-Type: application/json" -d '{"kind":"image","path":"./art/player.png"}'`,
+        `  curl -s -X POST http://127.0.0.1:${config.port}/preview/set -H "Content-Type: application/json" -d '{"kind":"video","path":"./out/clip.mp4"}'`,
+        `  curl -s -X POST http://127.0.0.1:${config.port}/preview/set -H "Content-Type: application/json" -d '{"kind":"web","port":5173}'`,
+        'For "web", start the dev server first (in the background), then set its port. After setting, tell the user which tab to open.',
+      ].join('\n'),
     },
   },
 })
@@ -140,6 +149,7 @@ const q = query({
       for (const block of msg.message.content) {
         if (block.type === 'tool_use') {
           broadcast({ type: 'tool_input', name: block.name, summary: toolSummary(block.input) })
+          trackMedia(block)
         }
       }
     } else if (msg.type === 'result') {
@@ -165,10 +175,64 @@ const q = query({
   console.error(err)
 })
 
+// ---- media preview (latest image / video Claude touched) ------------------
+const IMAGE_RE = /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i
+const VIDEO_RE = /\.(mp4|webm|mov|m4v|ogv)$/i
+const latestMedia = { image: null, video: null } // absolute paths
+
+function trackMedia(block) {
+  // Write/Edit carry file_path; Bash commands often *generate* media too
+  // (ffmpeg, image-gen scripts), so scan those for media-looking paths.
+  let candidates = []
+  if (block.name === 'Write' || block.name === 'Edit') {
+    if (typeof block.input?.file_path === 'string') candidates = [block.input.file_path]
+  } else if (block.name === 'Bash' && typeof block.input?.command === 'string') {
+    candidates = block.input.command.match(/[^\s"']+\.[a-z0-9]{2,4}/gi) ?? []
+  }
+  for (const c of candidates) {
+    const kind = IMAGE_RE.test(c) ? 'image' : VIDEO_RE.test(c) ? 'video' : null
+    if (!kind) continue
+    latestMedia[kind] = isAbsolute(c) ? c : resolve(config.cwd, c)
+    broadcast({ type: kind, label: redactPaths(latestMedia[kind]) })
+  }
+}
+
 // ---- HTTP ----------------------------------------------------------------
 const app = express()
 app.use(express.json())
+
+// Web preview proxy: /web/<port>/... → http://127.0.0.1:<port>/...
+// Lets you poke a local dev server (game build, vite, etc.) from your phone
+// through the same tailnet origin. Dev-preview quality: no websockets/HMR.
+function proxyTo(port, path, req, res) {
+  const upstream = httpRequest(
+    { host: '127.0.0.1', port, path, method: req.method, headers: { ...req.headers, host: `127.0.0.1:${port}` } },
+    (up) => {
+      res.writeHead(up.statusCode ?? 502, up.headers)
+      up.pipe(res)
+    }
+  )
+  upstream.on('error', () => {
+    if (!res.headersSent) res.status(502).send(`nothing listening on 127.0.0.1:${port}`)
+  })
+  req.pipe(upstream)
+}
+
+app.use('/web/:port', (req, res) => {
+  const port = Number(req.params.port)
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return res.status(400).send('bad port')
+  proxyTo(port, req.url, req, res)
+})
+
 app.use(express.static(join(__dirname, 'public')))
+
+// Fallback for absolute asset URLs (/assets/x.js) requested by proxied pages:
+// route them to the port found in the Referer's /web/<port>/ prefix.
+app.use((req, res, next) => {
+  const m = /\/web\/(\d+)\//.exec(req.headers.referer ?? '')
+  if (m) return proxyTo(Number(m[1]), req.url, req, res)
+  next()
+})
 
 app.get('/events', (req, res) => {
   res.set({
@@ -208,6 +272,49 @@ app.post('/permission', (req, res) => {
 
 app.get('/commands', (_req, res) => {
   res.json({ commands: slashCommands })
+})
+
+// ---- preview endpoints -----------------------------------------------------
+// Claude sets previews explicitly (curl from Bash, see system prompt below);
+// trackMedia() also auto-detects as a fallback.
+let webPort = null
+
+app.post('/preview/set', (req, res) => {
+  const { kind, path, port } = req.body ?? {}
+  if (kind === 'image' || kind === 'video') {
+    if (typeof path !== 'string' || !path.trim()) return res.status(400).json({ error: 'path required' })
+    const abs = isAbsolute(path) ? path : resolve(config.cwd, path)
+    if (!existsSync(abs)) return res.status(404).json({ error: `file not found: ${path}` })
+    latestMedia[kind] = abs
+    broadcast({ type: kind, label: redactPaths(abs) })
+    return res.json({ ok: true, shown: `${kind} tab` })
+  }
+  if (kind === 'web') {
+    const p = Number(port)
+    if (!Number.isInteger(p) || p < 1 || p > 65535) return res.status(400).json({ error: 'valid port required' })
+    webPort = p
+    broadcast({ type: 'web', port: p })
+    return res.json({ ok: true, shown: 'web tab' })
+  }
+  res.status(400).json({ error: 'kind must be image|video|web' })
+})
+
+app.get('/preview/image', (_req, res) => {
+  if (!latestMedia.image || !existsSync(latestMedia.image)) return res.status(404).send('Nothing set')
+  res.set('Cache-Control', 'no-store').sendFile(latestMedia.image)
+})
+
+app.get('/preview/video', (req, res) => {
+  if (!latestMedia.video || !existsSync(latestMedia.video)) return res.status(404).send('Nothing set')
+  res.set('Cache-Control', 'no-store').sendFile(latestMedia.video)
+})
+
+app.get('/preview/state', (_req, res) => {
+  res.json({
+    image: latestMedia.image ? redactPaths(latestMedia.image) : null,
+    video: latestMedia.video ? redactPaths(latestMedia.video) : null,
+    web: webPort,
+  })
 })
 
 app.post('/interrupt', async (_req, res) => {

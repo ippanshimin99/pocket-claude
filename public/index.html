@@ -6,6 +6,12 @@
 <title>pocket-claude</title>
 <style>
   body { margin: 0; font-family: ui-monospace, Consolas, monospace; background: #1e1e1e; color: #ddd; display: flex; flex-direction: column; height: 100dvh; }
+  #tabs { display: flex; background: #2a2a2a; border-bottom: 1px solid #444; }
+  #tabs button { flex: 1; background: none; border: none; border-radius: 0; color: #888; padding: 10px 0; font: inherit; position: relative; }
+  #tabs button.active { color: #ddd; border-bottom: 2px solid #8ec07c; }
+  #tabs button .dot { position: absolute; top: 6px; right: 14px; width: 8px; height: 8px; border-radius: 50%; background: #fabd2f; display: none; }
+  .pane { flex: 1; display: none; flex-direction: column; min-height: 0; }
+  .pane.active { display: flex; }
   #log { flex: 1; overflow-y: auto; padding: 12px; white-space: pre-wrap; word-break: break-word; font-size: 14px; line-height: 1.5; }
   .user { color: #8ec07c; margin-top: 10px; }
   .assistant { color: #ddd; }
@@ -20,22 +26,110 @@
   #suggest div:hover, #suggest div.sel { background: #3a3a3a; }
   #input { flex: 1; font: inherit; font-size: 16px; background: #1e1e1e; color: #ddd; border: 1px solid #444; border-radius: 4px; padding: 8px; resize: none; }
   button { font: inherit; background: #3a3a3a; color: #ddd; border: 1px solid #555; border-radius: 4px; padding: 8px 14px; }
+  .previewbar { display: flex; gap: 6px; align-items: center; padding: 8px; background: #2a2a2a; font-size: 12px; color: #888; }
+  .previewbar .label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .previewbody { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; overflow: auto; }
+  .previewbody img, .previewbody video { max-width: 100%; max-height: 100%; }
+  .empty { color: #555; }
+  #webFrame { flex: 1; border: none; width: 100%; background: #fff; }
+  #webPort { width: 70px; font: inherit; background: #1e1e1e; color: #ddd; border: 1px solid #444; border-radius: 4px; padding: 4px 6px; }
 </style>
 </head>
 <body>
-<div id="log"></div>
-<div id="bar">
-  <div id="suggest"></div>
-  <textarea id="input" rows="2" placeholder="Message (Ctrl+Enter to send)"></textarea>
-  <button id="mic">🎤</button>
-  <button id="send">Send</button>
-  <button id="stop">Stop</button>
+<div id="tabs">
+  <button data-pane="chat" class="active">Chat<span class="dot"></span></button>
+  <button data-pane="image">Image<span class="dot"></span></button>
+  <button data-pane="video">Movie<span class="dot"></span></button>
+  <button data-pane="web">Web<span class="dot"></span></button>
 </div>
+
+<div class="pane active" id="pane-chat">
+  <div id="log"></div>
+  <div id="bar">
+    <div id="suggest"></div>
+    <textarea id="input" rows="2" placeholder="Message (Ctrl+Enter to send)"></textarea>
+    <button id="mic">🎤</button>
+    <button id="send">Send</button>
+    <button id="stop">Stop</button>
+  </div>
+</div>
+
+<div class="pane" id="pane-image">
+  <div class="previewbar"><span class="label" id="imageLabel">Nothing set</span><button id="imageReload">↻ Reload</button></div>
+  <div class="previewbody" id="imageBody"><span class="empty">Nothing set — ask Claude to show an image</span></div>
+</div>
+
+<div class="pane" id="pane-video">
+  <div class="previewbar"><span class="label" id="videoLabel">Nothing set</span><button id="videoReload">↻ Reload</button></div>
+  <div class="previewbody" id="videoBody"><span class="empty">Nothing set — ask Claude to show a video</span></div>
+</div>
+
+<div class="pane" id="pane-web">
+  <div class="previewbar">
+    <span>port</span><input id="webPort" inputmode="numeric" placeholder="5173">
+    <button id="webGo">Open</button>
+    <button id="webReload">↻ Reload</button>
+    <span class="label" id="webLabel">Nothing set</span>
+  </div>
+  <iframe id="webFrame"></iframe>
+</div>
+
 <script>
 const log = document.getElementById('log')
 const input = document.getElementById('input')
 let current = null // current assistant text node
 
+// ---- tabs ----
+const tabs = [...document.querySelectorAll('#tabs button')]
+function showPane(name) {
+  tabs.forEach(b => b.classList.toggle('active', b.dataset.pane === name))
+  document.querySelectorAll('.pane').forEach(p => p.classList.toggle('active', p.id === 'pane-' + name))
+  const btn = tabs.find(b => b.dataset.pane === name)
+  btn.querySelector('.dot').style.display = 'none'
+  if (name === 'image') refreshImage()
+  if (name === 'video') refreshVideo()
+}
+tabs.forEach(b => (b.onclick = () => showPane(b.dataset.pane)))
+function badge(name) {
+  const btn = tabs.find(b => b.dataset.pane === name)
+  if (!btn.classList.contains('active')) btn.querySelector('.dot').style.display = 'block'
+}
+
+// ---- previews ----
+const state = { image: null, video: null, web: null }
+
+function refreshImage() {
+  if (!state.image) return
+  document.getElementById('imageLabel').textContent = state.image
+  document.getElementById('imageBody').innerHTML = `<img src="/preview/image?t=${Date.now()}">`
+}
+function refreshVideo() {
+  if (!state.video) return
+  document.getElementById('videoLabel').textContent = state.video
+  document.getElementById('videoBody').innerHTML = `<video src="/preview/video?t=${Date.now()}" controls autoplay muted></video>`
+}
+function refreshWeb() {
+  if (!state.web) return
+  document.getElementById('webLabel').textContent = '127.0.0.1:' + state.web
+  document.getElementById('webPort').value = state.web
+  document.getElementById('webFrame').src = `/web/${state.web}/?t=${Date.now()}`
+}
+document.getElementById('imageReload').onclick = refreshImage
+document.getElementById('videoReload').onclick = refreshVideo
+document.getElementById('webReload').onclick = refreshWeb
+document.getElementById('webGo').onclick = () => {
+  const p = Number(document.getElementById('webPort').value)
+  if (p) { state.web = p; refreshWeb() }
+}
+
+// restore previews on page load
+fetch('/preview/state').then(r => r.json()).then(s => {
+  if (s.image) { state.image = s.image }
+  if (s.video) { state.video = s.video }
+  if (s.web) { state.web = s.web }
+}).catch(() => {})
+
+// ---- chat log ----
 function line(cls, text) {
   const div = document.createElement('div')
   div.className = cls
@@ -62,6 +156,18 @@ es.onmessage = (e) => {
     } else {
       line('tool', '⏺ ' + ev.name + ': ' + ev.summary)
     }
+  } else if (ev.type === 'image') {
+    state.image = ev.label
+    badge('image')
+    if (document.getElementById('pane-image').classList.contains('active')) refreshImage()
+  } else if (ev.type === 'video') {
+    state.video = ev.label
+    badge('video')
+    if (document.getElementById('pane-video').classList.contains('active')) refreshVideo()
+  } else if (ev.type === 'web') {
+    state.web = ev.port
+    badge('web')
+    if (document.getElementById('pane-web').classList.contains('active')) refreshWeb()
   } else if (ev.type === 'permission') {
     current = null
     const div = line('perm', `⚠ ${ev.tool}: ${ev.summary}`)

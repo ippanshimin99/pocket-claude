@@ -23,6 +23,11 @@ Phone browser ──Tailscale (HTTPS)──▶ your PC ──▶ persistent Clau
 - **Voice input.** Tap 🎤 and talk (Web Speech API, your device language).
 - **Slash commands.** Type `/` for an autocomplete list — `/clear`, `/compact`,
   plus your project's custom commands, straight from the SDK.
+- **Preview tabs — see, don't deploy.** Say *"show me the sprite"* and the image
+  appears in the **Image** tab. *"Run the game so I can try it"* and Claude starts
+  your dev server and pipes it into the **Web** tab — a live, tappable iframe on
+  your phone, proxied through your tailnet. Videos land in the **Movie** tab.
+  No more uploading builds somewhere just to check them from outside.
 - **Tiny on purpose.** `server.mjs` + `index.html` + a config file. Read it all in
   ten minutes, fork it without fear.
 
@@ -77,6 +82,11 @@ Restart the server after changing config (a fresh session is created).
 - `/clear` resets context, `/compact` summarizes it — useful on long mobile sessions.
 - Custom slash commands from your project's `.claude/commands/` or `.claude/skills/`
   appear in the `/` autocomplete automatically.
+- **Previews** hold the latest item only (ephemeral by design). Claude sets them
+  when you ask to see something; they're also auto-detected when Claude writes
+  image/video files. Each tab has a ↻ Reload button (cache-busted), and the Web
+  tab takes a manual port too. The web proxy is dev-preview grade: no
+  websockets/HMR, plain HTTP only.
 
 ## Security model
 
