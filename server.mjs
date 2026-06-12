@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { homedir } from 'node:os'
+import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import express from 'express'
 import { query } from '@anthropic-ai/claude-agent-sdk'
@@ -40,12 +41,29 @@ function broadcast(ev) {
 const pendingPermissions = new Map()
 let permissionSeq = 0
 
+// Never show absolute paths in the UI: screen captures shouldn't leak
+// usernames or machine layout. cwd → "." and home → "~", both slash styles.
+const HOME = homedir()
+function redactPaths(s) {
+  if (typeof s !== 'string' || !s) return s
+  let out = s
+  for (const root of [config.cwd, config.cwd.replaceAll('/', '\\'), config.cwd.replaceAll('\\', '/')]) {
+    if (root) out = out.split(root).join('.')
+  }
+  for (const home of [HOME, HOME.replaceAll('\\', '/')]) {
+    if (home) out = out.split(home).join('~')
+  }
+  return out
+}
+
 function toolSummary(input) {
   if (input == null) return ''
-  if (typeof input.command === 'string') return input.command
-  if (typeof input.file_path === 'string') return input.file_path
-  if (typeof input.pattern === 'string') return input.pattern
-  const s = JSON.stringify(input)
+  let s
+  if (typeof input.command === 'string') s = input.command
+  else if (typeof input.file_path === 'string') s = input.file_path
+  else if (typeof input.pattern === 'string') s = input.pattern
+  else s = JSON.stringify(input)
+  s = redactPaths(s)
   return s.length > 160 ? s.slice(0, 160) + '…' : s
 }
 
@@ -100,6 +118,12 @@ const q = query({
     permissionMode: config.permissionMode,
     includePartialMessages: true,
     canUseTool,
+    systemPrompt: {
+      type: 'preset',
+      preset: 'claude_code',
+      append:
+        'When mentioning file paths in your responses, always use paths relative to the working directory. Never print absolute paths (they may be screen-captured).',
+    },
   },
 })
 
@@ -127,7 +151,8 @@ const q = query({
       })
     } else if (msg.type === 'system' && msg.subtype === 'init') {
       if (Array.isArray(msg.slash_commands)) slashCommands = msg.slash_commands
-      broadcast({ type: 'init', model: msg.model ?? config.model ?? 'default', cwd: config.cwd })
+      // Only the folder name — never the full path (capture-safe).
+      broadcast({ type: 'init', model: msg.model ?? config.model ?? 'default', cwd: basename(config.cwd) })
     } else if (msg.type === 'system' && msg.subtype === 'compact_boundary') {
       broadcast({
         type: 'info',
