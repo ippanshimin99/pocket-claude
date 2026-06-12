@@ -1,35 +1,42 @@
 # pocket-claude 📱⚡
 
-**Drive Claude Code from your phone.** A tiny web bridge (3 source files, 2 dependencies)
-that gives you the real CLI experience — token streaming, tool activity, permission
-prompts — in a plain web page, over your private Tailscale network, with voice input.
+**Your phone becomes a complete dev environment.**
+
+Claude Code runs on your PC at home — everything it does shows up in your hand.
+Say *"run the game"* and the game running on your PC becomes playable in your
+phone browser. Say *"show me the sprite"* and the image appears. You never have
+to deploy something just to look at it again.
 
 ```
 Phone browser ──Tailscale (HTTPS)──▶ your PC ──▶ persistent Claude Code session
    🎤 voice                            │            (official Agent SDK)
-   token stream ◀──────SSE────────────┘            works on YOUR project dir
+   tokens · tools · permissions ◀──SSE─┤            works on YOUR project dir
+   live game · images · video  ◀─proxy─┘            (preview tabs)
 ```
 
-## Why
+## What you get
 
-- **It feels like the CLI.** Tokens stream as they're generated. Tool calls show up
-  as they run (`⏺ Bash: npm test`). No "wait 3 minutes, get a wall of text".
+- **See your work, not just text.** Three preview tabs:
+  - **Web** — Claude starts your dev server and pipes it into a live, tappable
+    iframe on your phone (reverse-proxied through your tailnet)
+  - **Image** — ask to see any image and it's there; images Claude writes are
+    auto-detected too
+  - **Movie** — videos play with full seek controls
+- **Nothing dumbed down.** Replies stream word by word, you see every command as
+  it runs (`⏺ Bash: npm test`), and you can interrupt mid-task. The real CLI
+  feel, not a status page.
+- **Risky actions ask you first.** Tool approvals arrive as Allow/Deny buttons
+  on your phone — no need to run with `bypassPermissions`.
+- **Voice input.** Tap 🎤 and talk (Web Speech API, your device language).
+- **Slash commands.** Type `/` for autocomplete — `/clear`, `/compact`, plus your
+  project's custom commands, straight from the SDK. `/clear` resets everything:
+  context, chat log, and all previews.
 - **Your subscription, the official way.** Built on the official
   [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview), which
   delegates auth to your local Claude Code CLI login. No API key, no OAuth hacks,
   no third-party harness — this is the sanctioned path.
-- **Permission prompts on your phone.** Tool approvals are relayed to the UI as
-  Allow/Deny buttons, so you don't need `bypassPermissions` to work remotely.
-- **Voice input.** Tap 🎤 and talk (Web Speech API, your device language).
-- **Slash commands.** Type `/` for an autocomplete list — `/clear`, `/compact`,
-  plus your project's custom commands, straight from the SDK.
-- **Preview tabs — see, don't deploy.** Say *"show me the sprite"* and the image
-  appears in the **Image** tab. *"Run the game so I can try it"* and Claude starts
-  your dev server and pipes it into the **Web** tab — a live, tappable iframe on
-  your phone, proxied through your tailnet. Videos land in the **Movie** tab.
-  No more uploading builds somewhere just to check them from outside.
-- **Tiny on purpose.** `server.mjs` + `index.html` + a config file. Read it all in
-  ten minutes, fork it without fear.
+- **Small enough to actually read.** ~650 lines total: `server.mjs` +
+  `index.html` + a config file. Audit it in ten minutes, fork it without fear.
 
 ## Quickstart
 
