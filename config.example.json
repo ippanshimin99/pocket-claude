@@ -1,0 +1,6 @@
+{
+  "port": 3200,
+  "model": "",
+  "permissionMode": "default",
+  "cwd": "C:\\path\\to\\your\\project"
+}

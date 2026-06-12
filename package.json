@@ -1,0 +1,14 @@
+{
+  "name": "pocket-claude",
+  "version": "0.1.0",
+  "description": "Drive Claude Code from your phone — a tiny token-streaming web bridge built on the official Claude Agent SDK.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "latest",
+    "express": "^4.19.2"
+  }
+}
