@@ -82,6 +82,9 @@ es.onmessage = (e) => {
       div.querySelectorAll('button').forEach((b) => b.remove())
       div.textContent += ev.allow ? '  → allowed' : '  → denied'
     }
+  } else if (ev.type === 'clear') {
+    log.innerHTML = ''
+    current = null
   } else if (ev.type === 'user') {
     current = null
     line('user', '> ' + ev.text)

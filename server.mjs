@@ -187,6 +187,12 @@ app.post('/message', (req, res) => {
   if (typeof text !== 'string' || !text.trim()) {
     return res.status(400).json({ error: 'text required' })
   }
+  // /clear resets the SDK context — wipe the UI log and replay buffer too,
+  // so reloads (and other connected browsers) start blank as well.
+  if (text.trim() === '/clear') {
+    history.length = 0
+    broadcast({ type: 'clear' })
+  }
   broadcast({ type: 'user', text })
   pushUserMessage(text)
   res.json({ ok: true })
