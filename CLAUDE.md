@@ -61,7 +61,8 @@ The UI has preview tabs fed by `POST /preview/set` (the session's system prompt
 teaches the model to call it via curl when the user asks to see something).
 `GET /preview/state` returns what's currently set. Media previews hold the
 latest item only; `/web/<port>/` reverse-proxies a local dev server into the
-Web tab's iframe (plain HTTP, no websockets — dev preview, not a tunnel).
+Web tab's iframe. WebSocket upgrades are tunneled too (prefixed paths, plus a
+fallback that routes bare ws:// URLs to the currently previewed port).
 
 ## Notes for future development
 

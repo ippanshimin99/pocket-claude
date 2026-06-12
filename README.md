@@ -92,8 +92,8 @@ Restart the server after changing config (a fresh session is created).
 - **Previews** hold the latest item only (ephemeral by design). Claude sets them
   when you ask to see something; they're also auto-detected when Claude writes
   image/video files. Each tab has a ↻ Reload button (cache-busted), and the Web
-  tab takes a manual port too. The web proxy is dev-preview grade: no
-  websockets/HMR, plain HTTP only.
+  tab takes a manual port too. The web proxy passes WebSockets through
+  (multiplayer / live-reload connections work), one previewed app at a time.
 
 ## Security model
 

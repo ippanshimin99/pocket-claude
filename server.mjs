@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { request as httpRequest } from 'node:http'
+import { connect as netConnect } from 'node:net'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -227,10 +228,12 @@ app.use('/web/:port', (req, res) => {
 app.use(express.static(join(__dirname, 'public')))
 
 // Fallback for absolute asset URLs (/assets/x.js) requested by proxied pages:
-// route them to the port found in the Referer's /web/<port>/ prefix.
+// route them to the port found in the Referer's /web/<port>/ prefix, or to the
+// currently previewed web port as a last resort.
 app.use((req, res, next) => {
   const m = /\/web\/(\d+)\//.exec(req.headers.referer ?? '')
   if (m) return proxyTo(Number(m[1]), req.url, req, res)
+  if (webPort) return proxyTo(webPort, req.url, req, res)
   next()
 })
 
@@ -330,9 +333,38 @@ app.post('/interrupt', async (_req, res) => {
   }
 })
 
-app.listen(config.port, '127.0.0.1', () => {
+const server = app.listen(config.port, '127.0.0.1', () => {
   console.log(`pocket-claude on http://127.0.0.1:${config.port}`)
   console.log(
     `model=${config.model || '(CLI default)'} cwd=${config.cwd} permissionMode=${config.permissionMode}`
   )
+})
+
+// WebSocket passthrough for the web preview: tunnel upgrade requests to the
+// /web/<port>/ target, or to the currently previewed port (browsers don't
+// send a path-bearing Referer on WS handshakes, so absolute ws:// URLs from
+// the proxied page land here). Raw TCP tunnel — frames pass through untouched.
+server.on('upgrade', (req, socket, head) => {
+  let port = null
+  let path = req.url
+  const m = /^\/web\/(\d+)(\/.*)?$/.exec(req.url ?? '')
+  if (m) {
+    port = Number(m[1])
+    path = m[2] || '/'
+  } else if (webPort) {
+    port = webPort
+  }
+  if (!port) return socket.destroy()
+
+  const upstream = netConnect(port, '127.0.0.1', () => {
+    const headers = Object.entries(req.headers)
+      .map(([k, v]) => `${k}: ${k === 'host' ? `127.0.0.1:${port}` : v}`)
+      .join('\r\n')
+    upstream.write(`${req.method} ${path} HTTP/1.1\r\n${headers}\r\n\r\n`)
+    if (head?.length) upstream.write(head)
+    upstream.pipe(socket)
+    socket.pipe(upstream)
+  })
+  upstream.on('error', () => socket.destroy())
+  socket.on('error', () => upstream.destroy())
 })
