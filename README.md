@@ -89,6 +89,9 @@ Restart the server after changing config (a fresh session is created).
 
 ## License
 
+pocket-claude is an unofficial community project, not affiliated with or endorsed
+by Anthropic. "Claude" is a trademark of Anthropic, PBC.
+
 pocket-claude is MIT. It depends on the
 [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk)
 (© Anthropic PBC, proprietary), which is **not** bundled here — npm installs it
