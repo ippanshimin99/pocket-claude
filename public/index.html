@@ -581,7 +581,7 @@ input.addEventListener('input', () => {
 
 // ── slash commands ────────────────────────────────────────────
 const suggest = document.getElementById('suggest')
-let commands = ['clear', 'compact', 'context', 'usage']
+let commands = ['clear', 'compact', 'context', 'usage', 'restart']
 fetch('/commands').then(r => r.json()).then(d => {
   if (d.commands?.length) commands = d.commands
 }).catch(() => {})

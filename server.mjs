@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, watchFile } from 'node:fs'
 import { request as httpRequest } from 'node:http'
 import { connect as netConnect } from 'node:net'
 import { homedir } from 'node:os'
@@ -26,6 +26,16 @@ const configPath = join(__dirname, 'config.json')
 const config = existsSync(configPath)
   ? { ...defaults, ...JSON.parse(readFileSync(configPath, 'utf8')) }
   : defaults
+
+// ---- context.md: プロジェクトコンテキスト自動読み込み --------------------
+const contextPath = join(__dirname, 'context.md')
+function loadContext() {
+  return existsSync(contextPath) ? readFileSync(contextPath, 'utf8').trim() : ''
+}
+// context.md が更新されたら画面に通知（/restart で反映）
+watchFile(contextPath, { persistent: false, interval: 2000 }, () => {
+  broadcast({ type: 'info', text: '(context.md が更新されました — /restart で新しいコンテキストを反映)' })
+})
 
 // ---- SSE broadcast -------------------------------------------------------
 const clients = new Set()
@@ -133,8 +143,34 @@ async function* userMessages() {
 }
 
 let q = null
+let sessionId = 0 // セッション世代管理: 古いセッションのループを安全に終了させる
+
+function drainPermissions() {
+  for (const [id, cb] of pendingPermissions) {
+    broadcast({ type: 'permission_resolved', id, allow: false })
+    cb(false)
+  }
+  pendingPermissions.clear()
+}
 
 async function startSession() {
+  const myId = ++sessionId
+  const contextContent = loadContext()
+
+  const appendLines = [
+    'When mentioning file paths in your responses, always use paths relative to the working directory. Never print absolute paths (they may be screen-captured).',
+    '',
+    'The user is on a remote web UI (pocket-claude) with preview tabs: Image, Movie, Web.',
+    'When the user asks to see/check an image, video, or a running web app, set it into the matching tab via Bash:',
+    `  curl -s -X POST http://127.0.0.1:${config.port}/preview/set -H "Content-Type: application/json" -d '{"kind":"image","path":"./art/player.png"}'`,
+    `  curl -s -X POST http://127.0.0.1:${config.port}/preview/set -H "Content-Type: application/json" -d '{"kind":"video","path":"./out/clip.mp4"}'`,
+    `  curl -s -X POST http://127.0.0.1:${config.port}/preview/set -H "Content-Type: application/json" -d '{"kind":"web","port":5173}'`,
+    'For "web", start the dev server first (in the background), then set its port. After setting, tell the user which tab to open.',
+  ]
+  if (contextContent) {
+    appendLines.push('', '---', contextContent)
+  }
+
   q = query({
     prompt: userMessages(),
     options: {
@@ -147,22 +183,14 @@ async function startSession() {
       systemPrompt: {
         type: 'preset',
         preset: 'claude_code',
-        append: [
-          'When mentioning file paths in your responses, always use paths relative to the working directory. Never print absolute paths (they may be screen-captured).',
-          '',
-          'The user is on a remote web UI (pocket-claude) with preview tabs: Image, Movie, Web.',
-          'When the user asks to see/check an image, video, or a running web app, set it into the matching tab via Bash:',
-          `  curl -s -X POST http://127.0.0.1:${config.port}/preview/set -H "Content-Type: application/json" -d '{"kind":"image","path":"./art/player.png"}'`,
-          `  curl -s -X POST http://127.0.0.1:${config.port}/preview/set -H "Content-Type: application/json" -d '{"kind":"video","path":"./out/clip.mp4"}'`,
-          `  curl -s -X POST http://127.0.0.1:${config.port}/preview/set -H "Content-Type: application/json" -d '{"kind":"web","port":5173}'`,
-          'For "web", start the dev server first (in the background), then set its port. After setting, tell the user which tab to open.',
-        ].join('\n'),
+        append: appendLines.join('\n'),
       },
     },
   })
 
   try {
     for await (const msg of q) {
+      if (sessionId !== myId) return // 新しいセッションが起動済み → 静かに終了
       if (msg.type === 'stream_event') {
         const ev = msg.event
         if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
@@ -186,7 +214,6 @@ async function startSession() {
         })
       } else if (msg.type === 'system' && msg.subtype === 'init') {
         if (Array.isArray(msg.slash_commands)) slashCommands = msg.slash_commands
-        // Only the folder name — never the full path (capture-safe).
         broadcast({ type: 'init', model: msg.model ?? config.model ?? 'default', cwd: basename(config.cwd) })
       } else if (msg.type === 'system' && msg.subtype === 'compact_boundary') {
         broadcast({
@@ -196,14 +223,10 @@ async function startSession() {
       }
     }
   } catch (err) {
+    if (sessionId !== myId) return
     broadcast({ type: 'error', message: String(err) })
     console.error('[pocket-claude] session error:', err)
-    // Drain stale permission prompts so the UI doesn't hang
-    for (const [id, cb] of pendingPermissions) {
-      broadcast({ type: 'permission_resolved', id, allow: false })
-      cb(false)
-    }
-    pendingPermissions.clear()
+    drainPermissions()
     broadcast({ type: 'info', text: '(session crashed — restarting in 5 s…)' })
     setTimeout(startSession, 5000)
   }
@@ -284,7 +307,7 @@ app.get('/events', (req, res) => {
   req.on('close', () => clients.delete(res))
 })
 
-app.post('/message', (req, res) => {
+app.post('/message', async (req, res) => {
   const text = req.body?.text ?? ''
   const image = req.body?.image ?? null // { data: 'base64...', mediaType: 'image/jpeg' }
 
@@ -299,6 +322,20 @@ app.post('/message', (req, res) => {
     latestMedia.video = null
     webPort = null
     broadcast({ type: 'clear' })
+  }
+
+  // /restart: context.md を再読み込みしてセッションを新規起動する
+  if (text.trim() === '/restart') {
+    history.length = 0
+    latestMedia.image = null
+    latestMedia.video = null
+    webPort = null
+    drainPermissions()
+    broadcast({ type: 'clear' })
+    broadcast({ type: 'info', text: '(context.md を読み込んでセッションを再起動します…)' })
+    try { await q?.interrupt() } catch {}
+    setTimeout(startSession, 300)
+    return res.json({ ok: true })
   }
 
   const displayText = image ? `${text || ''}${text ? ' ' : ''}📷` : text
