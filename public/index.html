@@ -555,10 +555,20 @@ async function send() {
     if (pendingImage.objectUrl) URL.revokeObjectURL(pendingImage.objectUrl)
     pendingImage = null; imgPreview.style.display = 'none'; imgThumb.src = ''
   }
-  await fetch('/message', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
+  try {
+    const res = await fetch('/message', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      line('error', '⚠ send failed: ' + (err.error || res.status))
+      setBusy(false)
+    }
+  } catch (e) {
+    line('error', '⚠ network error — is the server running?')
+    setBusy(false)
+  }
 }
 document.getElementById('send').onclick = send
 document.getElementById('stop').onclick = () => fetch('/interrupt', { method: 'POST' })
