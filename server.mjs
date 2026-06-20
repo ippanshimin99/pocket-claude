@@ -112,7 +112,44 @@ function toolSummary(input) {
 
 const PERMISSION_TIMEOUT_MS = 5 * 60 * 1000 // auto-deny if no browser responds within 5 min
 
+// Tools that are always safe to auto-approve
+const AUTO_ALLOW_TOOLS = new Set([
+  'Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit',
+  'Grep', 'Glob', 'LS',
+  'TodoRead', 'TodoWrite',
+  'WebSearch', 'WebFetch',
+])
+
+// Bash patterns that must always prompt (destructive / irreversible)
+const DANGEROUS_BASH = [
+  /\brm\s+.*-[rf]/,          // rm -rf / rm -fr
+  /\brm\s+-[rf]/,            // rm -r or rm -f
+  /\bsudo\b/,
+  /\bgit\s+reset\s+--hard/,
+  /\bgit\s+push\b.*--force/,
+  /\bgit\s+clean\s+-[fdx]/,
+  /\|\s*(bash|sh|zsh|fish)\b/, // pipe to shell
+  /\b(drop|truncate)\s+table/i,
+]
+
+function isSafeBash(command) {
+  return !DANGEROUS_BASH.some(p => p.test(command))
+}
+
 async function canUseTool(toolName, input) {
+  // Auto-allow safe tools without prompting
+  if (AUTO_ALLOW_TOOLS.has(toolName)) {
+    return { behavior: 'allow', updatedInput: input }
+  }
+
+  // Auto-allow Bash unless it matches dangerous patterns
+  if (toolName === 'Bash' && typeof input?.command === 'string') {
+    if (isSafeBash(input.command)) {
+      return { behavior: 'allow', updatedInput: input }
+    }
+  }
+
+  // Everything else → relay to UI
   const id = String(++permissionSeq)
   broadcast({ type: 'permission', id, tool: toolName, summary: toolSummary(input) })
   return new Promise((resolve) => {
