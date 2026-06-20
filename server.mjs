@@ -69,11 +69,22 @@ function toolSummary(input) {
   return s.length > 160 ? s.slice(0, 160) + '…' : s
 }
 
+const PERMISSION_TIMEOUT_MS = 5 * 60 * 1000 // auto-deny if no browser responds within 5 min
+
 async function canUseTool(toolName, input) {
   const id = String(++permissionSeq)
   broadcast({ type: 'permission', id, tool: toolName, summary: toolSummary(input) })
   return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      if (!pendingPermissions.has(id)) return
+      pendingPermissions.delete(id)
+      broadcast({ type: 'permission_resolved', id, allow: false })
+      broadcast({ type: 'info', text: `(permission timed out: ${toolName} — auto-denied)` })
+      resolve({ behavior: 'deny', message: 'Auto-denied: no browser responded within 5 minutes.' })
+    }, PERMISSION_TIMEOUT_MS)
+
     pendingPermissions.set(id, (allow) => {
+      clearTimeout(timer)
       pendingPermissions.delete(id)
       broadcast({ type: 'permission_resolved', id, allow })
       resolve(
@@ -121,70 +132,84 @@ async function* userMessages() {
   }
 }
 
-const q = query({
-  prompt: userMessages(),
-  options: {
-    ...(config.model ? { model: config.model } : {}),
-    cwd: config.cwd,
-    permissionMode: config.permissionMode,
-    includePartialMessages: true,
-    maxTurns: 100,
-    canUseTool,
-    systemPrompt: {
-      type: 'preset',
-      preset: 'claude_code',
-      append: [
-        'When mentioning file paths in your responses, always use paths relative to the working directory. Never print absolute paths (they may be screen-captured).',
-        '',
-        'The user is on a remote web UI (pocket-claude) with preview tabs: Image, Movie, Web.',
-        'When the user asks to see/check an image, video, or a running web app, set it into the matching tab via Bash:',
-        `  curl -s -X POST http://127.0.0.1:${config.port}/preview/set -H "Content-Type: application/json" -d '{"kind":"image","path":"./art/player.png"}'`,
-        `  curl -s -X POST http://127.0.0.1:${config.port}/preview/set -H "Content-Type: application/json" -d '{"kind":"video","path":"./out/clip.mp4"}'`,
-        `  curl -s -X POST http://127.0.0.1:${config.port}/preview/set -H "Content-Type: application/json" -d '{"kind":"web","port":5173}'`,
-        'For "web", start the dev server first (in the background), then set its port. After setting, tell the user which tab to open.',
-      ].join('\n'),
-    },
-  },
-})
+let q = null
 
-;(async () => {
-  for await (const msg of q) {
-    if (msg.type === 'stream_event') {
-      const ev = msg.event
-      if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
-        broadcast({ type: 'text', text: ev.delta.text })
-      } else if (ev.type === 'content_block_start' && ev.content_block?.type === 'tool_use') {
-        broadcast({ type: 'tool', name: ev.content_block.name })
-      }
-    } else if (msg.type === 'assistant') {
-      for (const block of msg.message.content) {
-        if (block.type === 'tool_use') {
-          broadcast({ type: 'tool_input', name: block.name, summary: toolSummary(block.input) })
-          trackMedia(block)
+async function startSession() {
+  q = query({
+    prompt: userMessages(),
+    options: {
+      ...(config.model ? { model: config.model } : {}),
+      cwd: config.cwd,
+      permissionMode: config.permissionMode,
+      includePartialMessages: true,
+      maxTurns: 100,
+      canUseTool,
+      systemPrompt: {
+        type: 'preset',
+        preset: 'claude_code',
+        append: [
+          'When mentioning file paths in your responses, always use paths relative to the working directory. Never print absolute paths (they may be screen-captured).',
+          '',
+          'The user is on a remote web UI (pocket-claude) with preview tabs: Image, Movie, Web.',
+          'When the user asks to see/check an image, video, or a running web app, set it into the matching tab via Bash:',
+          `  curl -s -X POST http://127.0.0.1:${config.port}/preview/set -H "Content-Type: application/json" -d '{"kind":"image","path":"./art/player.png"}'`,
+          `  curl -s -X POST http://127.0.0.1:${config.port}/preview/set -H "Content-Type: application/json" -d '{"kind":"video","path":"./out/clip.mp4"}'`,
+          `  curl -s -X POST http://127.0.0.1:${config.port}/preview/set -H "Content-Type: application/json" -d '{"kind":"web","port":5173}'`,
+          'For "web", start the dev server first (in the background), then set its port. After setting, tell the user which tab to open.',
+        ].join('\n'),
+      },
+    },
+  })
+
+  try {
+    for await (const msg of q) {
+      if (msg.type === 'stream_event') {
+        const ev = msg.event
+        if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
+          broadcast({ type: 'text', text: ev.delta.text })
+        } else if (ev.type === 'content_block_start' && ev.content_block?.type === 'tool_use') {
+          broadcast({ type: 'tool', name: ev.content_block.name })
         }
+      } else if (msg.type === 'assistant') {
+        for (const block of msg.message.content) {
+          if (block.type === 'tool_use') {
+            broadcast({ type: 'tool_input', name: block.name, summary: toolSummary(block.input) })
+            trackMedia(block)
+          }
+        }
+      } else if (msg.type === 'result') {
+        broadcast({
+          type: 'done',
+          subtype: msg.subtype,
+          num_turns: msg.num_turns,
+          duration_ms: msg.duration_ms,
+        })
+      } else if (msg.type === 'system' && msg.subtype === 'init') {
+        if (Array.isArray(msg.slash_commands)) slashCommands = msg.slash_commands
+        // Only the folder name — never the full path (capture-safe).
+        broadcast({ type: 'init', model: msg.model ?? config.model ?? 'default', cwd: basename(config.cwd) })
+      } else if (msg.type === 'system' && msg.subtype === 'compact_boundary') {
+        broadcast({
+          type: 'info',
+          text: `(compacted: ${msg.compact_metadata?.pre_tokens ?? '?'} tokens summarized)`,
+        })
       }
-    } else if (msg.type === 'result') {
-      broadcast({
-        type: 'done',
-        subtype: msg.subtype,
-        num_turns: msg.num_turns,
-        duration_ms: msg.duration_ms,
-      })
-    } else if (msg.type === 'system' && msg.subtype === 'init') {
-      if (Array.isArray(msg.slash_commands)) slashCommands = msg.slash_commands
-      // Only the folder name — never the full path (capture-safe).
-      broadcast({ type: 'init', model: msg.model ?? config.model ?? 'default', cwd: basename(config.cwd) })
-    } else if (msg.type === 'system' && msg.subtype === 'compact_boundary') {
-      broadcast({
-        type: 'info',
-        text: `(compacted: ${msg.compact_metadata?.pre_tokens ?? '?'} tokens summarized)`,
-      })
     }
+  } catch (err) {
+    broadcast({ type: 'error', message: String(err) })
+    console.error('[pocket-claude] session error:', err)
+    // Drain stale permission prompts so the UI doesn't hang
+    for (const [id, cb] of pendingPermissions) {
+      broadcast({ type: 'permission_resolved', id, allow: false })
+      cb(false)
+    }
+    pendingPermissions.clear()
+    broadcast({ type: 'info', text: '(session crashed — restarting in 5 s…)' })
+    setTimeout(startSession, 5000)
   }
-})().catch((err) => {
-  broadcast({ type: 'error', message: String(err) })
-  console.error(err)
-})
+}
+
+startSession()
 
 // ---- media preview (latest image / video Claude touched) ------------------
 const IMAGE_RE = /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i
@@ -338,6 +363,7 @@ app.get('/preview/state', (_req, res) => {
 })
 
 app.post('/interrupt', async (_req, res) => {
+  if (!q) return res.status(503).json({ error: 'no active session' })
   try {
     await q.interrupt()
     broadcast({ type: 'info', text: '(interrupted)' })
