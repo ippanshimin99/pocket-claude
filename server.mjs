@@ -90,8 +90,8 @@ let slashCommands = [] // filled from the SDK's system/init message
 const queue = []
 let wake = null
 
-function pushUserMessage(text) {
-  queue.push(text)
+function pushUserMessage(text, image = null) {
+  queue.push({ text, image })
   if (wake) {
     wake()
     wake = null
@@ -103,10 +103,19 @@ async function* userMessages() {
     while (queue.length === 0) {
       await new Promise((resolve) => (wake = resolve))
     }
-    const text = queue.shift()
+    const { text, image } = queue.shift()
+    let content
+    if (image) {
+      content = [
+        { type: 'image', source: { type: 'base64', media_type: image.mediaType, data: image.data } },
+        { type: 'text', text: text || '(image)' },
+      ]
+    } else {
+      content = text
+    }
     yield {
       type: 'user',
-      message: { role: 'user', content: text },
+      message: { role: 'user', content },
       parent_tool_use_id: null,
     }
   }
@@ -119,6 +128,7 @@ const q = query({
     cwd: config.cwd,
     permissionMode: config.permissionMode,
     includePartialMessages: true,
+    maxTurns: 100,
     canUseTool,
     systemPrompt: {
       type: 'preset',
@@ -250,10 +260,12 @@ app.get('/events', (req, res) => {
 })
 
 app.post('/message', (req, res) => {
-  const text = req.body?.text
-  if (typeof text !== 'string' || !text.trim()) {
-    return res.status(400).json({ error: 'text required' })
-  }
+  const text = req.body?.text ?? ''
+  const image = req.body?.image ?? null // { data: 'base64...', mediaType: 'image/jpeg' }
+
+  if (typeof text !== 'string') return res.status(400).json({ error: 'text must be string' })
+  if (!text.trim() && !image) return res.status(400).json({ error: 'text or image required' })
+
   // /clear resets the SDK context — wipe the UI log, the replay buffer,
   // and all previews, so everything starts blank everywhere.
   if (text.trim() === '/clear') {
@@ -263,8 +275,10 @@ app.post('/message', (req, res) => {
     webPort = null
     broadcast({ type: 'clear' })
   }
-  broadcast({ type: 'user', text })
-  pushUserMessage(text)
+
+  const displayText = image ? `${text || ''}${text ? ' ' : ''}📷` : text
+  broadcast({ type: 'user', text: displayText })
+  pushUserMessage(text, image)
   res.json({ ok: true })
 })
 

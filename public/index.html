@@ -20,7 +20,10 @@
   .error { color: #fb4934; }
   .perm { color: #fabd2f; font-size: 13px; border: 1px solid #5a4a1a; border-radius: 4px; padding: 6px 8px; margin: 4px 0; }
   .perm button { margin-left: 8px; padding: 2px 12px; }
-  #bar { display: flex; gap: 6px; padding: 8px; background: #2a2a2a; position: relative; }
+  #bar { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; background: #2a2a2a; position: relative; }
+  #img-preview { display: none; align-items: center; gap: 6px; width: 100%; padding: 4px 2px; }
+  #img-preview img { height: 56px; border-radius: 4px; border: 1px solid #555; object-fit: cover; }
+  #img-preview .clear-img { background: #5a2a2a; border-color: #8a4a4a; color: #fb4934; padding: 4px 8px; font-size: 12px; }
   #suggest { position: absolute; bottom: 100%; left: 8px; right: 8px; background: #2a2a2a; border: 1px solid #555; border-radius: 4px; max-height: 40dvh; overflow-y: auto; display: none; }
   #suggest div { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #383838; }
   #suggest div:hover, #suggest div.sel { background: #3a3a3a; }
@@ -47,7 +50,10 @@
   <div id="log"></div>
   <div id="bar">
     <div id="suggest"></div>
+    <div id="img-preview"><img id="img-thumb" src=""><button class="clear-img" id="clear-img">✕ Remove</button></div>
     <textarea id="input" rows="2" placeholder="Message (Ctrl+Enter to send)"></textarea>
+    <button id="attach" title="画像を添付">📎</button>
+    <input id="file-input" type="file" accept="image/jpeg,image/png,image/gif,image/webp" style="display:none">
     <button id="mic">🎤</button>
     <button id="send">Send</button>
     <button id="stop">Stop</button>
@@ -218,14 +224,85 @@ es.onmessage = (e) => {
 }
 es.onerror = () => line('error', '(connection lost, reconnecting…)')
 
+// ---- image attachment ----
+let pendingImage = null // { data: base64, mediaType, objectUrl }
+
+const imgPreview = document.getElementById('img-preview')
+const imgThumb = document.getElementById('img-thumb')
+
+function setPendingImage(file) {
+  if (!file) return
+  const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+  if (!allowed.includes(file.type)) {
+    alert('Supported formats: JPEG, PNG, GIF, WebP')
+    return
+  }
+  const MAX_PX = 1920
+  const reader = new FileReader()
+  reader.onload = () => {
+    const img = new Image()
+    img.onload = () => {
+      let { width, height } = img
+      if (width > MAX_PX || height > MAX_PX) {
+        const scale = MAX_PX / Math.max(width, height)
+        width = Math.round(width * scale)
+        height = Math.round(height * scale)
+      }
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height)
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
+      const data = dataUrl.split(',')[1]
+      pendingImage = { data, mediaType: 'image/jpeg', objectUrl: URL.createObjectURL(file) }
+      imgThumb.src = pendingImage.objectUrl
+      imgPreview.style.display = 'flex'
+    }
+    img.src = reader.result
+  }
+  reader.readAsDataURL(file)
+}
+
+document.getElementById('clear-img').onclick = () => {
+  if (pendingImage?.objectUrl) URL.revokeObjectURL(pendingImage.objectUrl)
+  pendingImage = null
+  imgPreview.style.display = 'none'
+  imgThumb.src = ''
+}
+
+document.getElementById('attach').onclick = () => document.getElementById('file-input').click()
+document.getElementById('file-input').onchange = (e) => {
+  if (e.target.files[0]) setPendingImage(e.target.files[0])
+  e.target.value = ''
+}
+
+document.addEventListener('paste', (e) => {
+  const items = e.clipboardData?.items ?? []
+  for (const item of items) {
+    if (item.kind === 'file' && item.type.startsWith('image/')) {
+      const file = item.getAsFile()
+      if (file) { setPendingImage(file); e.preventDefault() }
+      break
+    }
+  }
+})
+
 async function send() {
   const text = input.value.trim()
-  if (!text) return
+  if (!text && !pendingImage) return
   input.value = ''
+  const body = { text }
+  if (pendingImage) {
+    body.image = { data: pendingImage.data, mediaType: pendingImage.mediaType }
+    if (pendingImage.objectUrl) URL.revokeObjectURL(pendingImage.objectUrl)
+    pendingImage = null
+    imgPreview.style.display = 'none'
+    imgThumb.src = ''
+  }
   await fetch('/message', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify(body),
   })
 }
 document.getElementById('send').onclick = send
