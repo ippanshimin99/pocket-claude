@@ -2,65 +2,116 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>pocket-claude</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github-dark-dimmed.min.css" crossorigin>
 <style>
-  body { margin: 0; font-family: ui-monospace, Consolas, monospace; background: #1e1e1e; color: #ddd; display: flex; flex-direction: column; height: 100dvh; }
-  #tabs { display: flex; background: #2a2a2a; border-bottom: 1px solid #444; }
-  #tabs button { flex: 1; background: none; border: none; border-radius: 0; color: #888; padding: 10px 0; font: inherit; position: relative; }
-  #tabs button.active { color: #ddd; border-bottom: 2px solid #8ec07c; }
-  #tabs button .dot { position: absolute; top: 6px; right: 14px; width: 8px; height: 8px; border-radius: 50%; background: #fabd2f; display: none; }
-  .pane { flex: 1; display: none; flex-direction: column; min-height: 0; }
-  .pane.active { display: flex; }
-  #log { flex: 1; overflow-y: auto; padding: 12px; white-space: pre-wrap; word-break: break-word; font-size: 14px; line-height: 1.5; }
-  .user { color: #8ec07c; margin-top: 10px; }
-  .assistant { color: #ddd; }
-  .tool { color: #888; font-size: 12px; }
-  .meta { color: #666; font-size: 12px; }
-  .error { color: #fb4934; }
-  .perm { color: #fabd2f; font-size: 13px; border: 1px solid #5a4a1a; border-radius: 4px; padding: 6px 8px; margin: 4px 0; }
-  .perm button { margin-left: 8px; padding: 2px 12px; }
-  #bar { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; background: #2a2a2a; position: relative; }
-  #img-preview { display: none; align-items: center; gap: 6px; width: 100%; padding: 4px 2px; }
-  #img-preview img { height: 56px; border-radius: 4px; border: 1px solid #555; object-fit: cover; }
-  #img-preview .clear-img { background: #5a2a2a; border-color: #8a4a4a; color: #fb4934; padding: 4px 8px; font-size: 12px; }
-  #suggest { position: absolute; bottom: 100%; left: 8px; right: 8px; background: #2a2a2a; border: 1px solid #555; border-radius: 4px; max-height: 40dvh; overflow-y: auto; display: none; }
-  #suggest div { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #383838; }
-  #suggest div:hover, #suggest div.sel { background: #3a3a3a; }
-  #input { flex: 1; font: inherit; font-size: 16px; background: #1e1e1e; color: #ddd; border: 1px solid #444; border-radius: 4px; padding: 8px; resize: none; }
-  button { font: inherit; background: #3a3a3a; color: #ddd; border: 1px solid #555; border-radius: 4px; padding: 8px 14px; }
-  .previewbar { display: flex; gap: 6px; align-items: center; padding: 8px; background: #2a2a2a; font-size: 12px; color: #888; }
-  .previewbar .label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .previewbody { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; overflow: auto; }
-  .previewbody img, .previewbody video { max-width: 100%; max-height: 100%; }
-  .empty { color: #555; }
-  #webFrame { flex: 1; border: none; width: 100%; background: #fff; }
-  #webPort { width: 70px; font: inherit; background: #1e1e1e; color: #ddd; border: 1px solid #444; border-radius: 4px; padding: 4px 6px; }
-  /* markdown */
-  .assistant pre { background: #252525; border: 1px solid #383838; border-radius: 6px; padding: 10px 14px; overflow-x: auto; margin: 6px 0; }
-  .assistant pre code { background: none; padding: 0; color: #ddd; font-size: 13px; }
-  .assistant :not(pre) > code { background: #2d2d2d; color: #b8bb26; padding: 2px 6px; border-radius: 3px; font-size: 13px; }
-  .assistant h2 { color: #8ec07c; font-size: 1em; margin: 10px 0 3px; padding-bottom: 3px; border-bottom: 1px solid #3a3a3a; }
-  .assistant h3, .assistant h4 { color: #8ec07c; font-size: 1em; margin: 8px 0 2px; }
-  .assistant strong { color: #fabd2f; }
-  .assistant em { color: #83a598; }
-  .assistant ul, .assistant ol { margin: 4px 0; padding-left: 22px; }
-  .assistant li { margin: 2px 0; }
-  .assistant blockquote { border-left: 3px solid #555; margin: 4px 0; padding-left: 12px; color: #888; }
-  .assistant hr { border: none; border-top: 1px solid #3a3a3a; margin: 8px 0; }
-  .assistant a { color: #83a598; }
-  /* thinking indicator */
-  #thinking { display: none; color: #555; font-size: 13px; padding: 2px 12px 4px; }
-  #thinking.on { display: block; }
-  #thinking::after { content: '▋'; animation: blink .8s step-end infinite; }
-  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
-  /* busy state */
-  #send:disabled, #input:disabled { opacity: .45; cursor: not-allowed; }
-  .error { color: #fb4934; background: #1f0a0a; border-left: 3px solid #fb4934; padding: 4px 8px; border-radius: 0 4px 4px 0; }
-  .warn { color: #fabd2f; font-size: 12px; }
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;font-family:ui-monospace,'Cascadia Code',Consolas,monospace;background:#1a1a1a;color:#d4d4d4;display:flex;flex-direction:column;height:100dvh;overscroll-behavior:none}
+
+/* tabs */
+#tabs{display:flex;background:#222;border-bottom:1px solid #2a2a2a;flex-shrink:0}
+#tabs button{flex:1;background:none;border:none;border-bottom:2px solid transparent;color:#555;padding:11px 0;font:inherit;font-size:13px;cursor:pointer;position:relative;transition:color .15s;-webkit-tap-highlight-color:transparent}
+#tabs button.active{color:#d4d4d4;border-bottom-color:#569cd6}
+#tabs button:hover:not(.active){color:#999}
+#tabs button .dot{position:absolute;top:8px;right:10px;width:6px;height:6px;border-radius:50%;background:#e5c07b;display:none}
+
+/* panes */
+.pane{flex:1;display:none;flex-direction:column;min-height:0;overflow:hidden}
+.pane.active{display:flex}
+
+/* log — NO white-space:pre-wrap here (conflicts with innerHTML markdown) */
+#log{flex:1;overflow-y:auto;padding:14px 14px 6px;word-break:break-word;font-size:14px;line-height:1.65;-webkit-overflow-scrolling:touch}
+
+/* message types — only text-content elements get pre-wrap */
+.user{color:#6a9955;margin:16px 0 2px;padding:8px 12px;background:#192219;border-left:2px solid #3a6a3a;border-radius:0 6px 6px 0;white-space:pre-wrap;animation:fadeUp .18s ease}
+.assistant{color:#d4d4d4;margin:2px 0;animation:fadeUp .18s ease}
+.tool{color:#444;font-size:12px;padding:1px 0;white-space:pre-wrap}
+.meta{color:#363636;font-size:12px;padding:1px 0;white-space:pre-wrap}
+.warn{color:#e5c07b;font-size:12px;padding:2px 0;white-space:pre-wrap;animation:fadeUp .18s ease}
+.error{color:#f44747;background:#190a0a;border-left:3px solid #f44747;padding:6px 12px;border-radius:0 6px 6px 0;margin:4px 0;white-space:pre-wrap;animation:fadeUp .18s ease}
+.perm{color:#e5c07b;font-size:13px;border:1px solid #3d3010;background:#1c1700;border-radius:8px;padding:10px 14px;margin:8px 0;animation:fadeUp .18s ease}
+.perm button{margin-left:8px;padding:4px 16px;font-size:12px;-webkit-tap-highlight-color:transparent}
+@keyframes fadeUp{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+
+/* markdown — inline */
+.assistant :not(pre)>code{background:#2a2a2a;color:#9cdcfe;padding:1px 6px;border-radius:4px;font-size:13px;font-family:inherit}
+.assistant strong{color:#dcdcaa;font-weight:bold}
+.assistant em{color:#c586c0;font-style:italic}
+.assistant del{color:#555;text-decoration:line-through}
+.assistant a{color:#4ec9b0;text-decoration:underline}
+.assistant h1,.assistant h2{color:#569cd6;font-size:1em;font-weight:bold;margin:14px 0 5px;padding-bottom:4px;border-bottom:1px solid #2a2a2a}
+.assistant h3,.assistant h4{color:#569cd6;font-size:1em;font-weight:bold;margin:10px 0 3px}
+.assistant ul,.assistant ol{margin:5px 0;padding-left:24px}
+.assistant li{margin:3px 0}
+.assistant blockquote{border-left:3px solid #333;margin:6px 0;padding:2px 0 2px 14px;color:#666}
+.assistant hr{border:none;border-top:1px solid #2a2a2a;margin:10px 0}
+.assistant table{border-collapse:collapse;margin:8px 0;width:100%;font-size:13px}
+.assistant th,.assistant td{border:1px solid #2a2a2a;padding:5px 10px;text-align:left}
+.assistant th{background:#252525;color:#9cdcfe}
+.assistant tr:nth-child(even){background:#1e1e1e}
+
+/* code block */
+.code-wrap{margin:10px 0;border-radius:8px;overflow:hidden;border:1px solid #2a2a2a}
+.code-header{display:flex;align-items:center;justify-content:space-between;background:#252525;padding:5px 14px;border-bottom:1px solid #2a2a2a}
+.lang-label{color:#444;font-size:11px;letter-spacing:.4px}
+.copy-btn{background:none;border:1px solid #333;color:#555;font:inherit;font-size:11px;padding:2px 12px;border-radius:4px;cursor:pointer;transition:all .15s;min-width:54px;-webkit-tap-highlight-color:transparent}
+.copy-btn:hover{border-color:#4ec9b0;color:#4ec9b0}
+.copy-btn.ok{border-color:#6a9955;color:#6a9955}
+.code-wrap .hljs{margin:0!important;border-radius:0!important;padding:14px!important;font-size:13px!important;line-height:1.5!important;overflow-x:auto}
+.code-wrap pre{margin:0;background:#1e1e1e;overflow-x:auto}
+.code-wrap pre code.plain{display:block;padding:14px;color:#d4d4d4;font-size:13px;line-height:1.5}
+
+/* thinking */
+#thinking{display:none;color:#383838;font-size:13px;padding:3px 14px 5px}
+#thinking.on{display:block}
+#thinking::after{content:'▋';animation:blink .7s step-end infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+
+/* input bar */
+#bar{display:flex;flex-wrap:wrap;gap:6px;padding:8px 8px calc(8px + env(safe-area-inset-bottom));background:#1e1e1e;border-top:1px solid #2a2a2a;position:relative;flex-shrink:0}
+#img-preview{display:none;align-items:center;gap:8px;width:100%}
+#img-preview img{height:52px;border-radius:6px;border:1px solid #333;object-fit:cover}
+#img-preview .clear-img{background:none;border:1px solid #5a1a1a;color:#f44747;padding:3px 10px;font-size:12px;border-radius:4px;cursor:pointer}
+#input{flex:1;font:inherit;font-size:15px;background:#252525;color:#d4d4d4;border:1px solid #2a2a2a;border-radius:8px;padding:9px 12px;resize:none;min-height:40px;max-height:180px;overflow-y:auto;line-height:1.5;transition:border-color .15s}
+#input:focus{outline:none;border-color:#3d5a7a}
+#input:disabled{opacity:.4;cursor:not-allowed}
+button{font:inherit;background:#252525;color:#888;border:1px solid #333;border-radius:6px;padding:8px 14px;cursor:pointer;transition:all .15s;white-space:nowrap;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+button:hover:not(:disabled){background:#2d2d2d;color:#d4d4d4}
+button:disabled{opacity:.4;cursor:not-allowed}
+#send{background:#1a2d1a;border-color:#2d5a2d;color:#6a9955;font-weight:bold}
+#send:hover:not(:disabled){background:#253d25;color:#98c379}
+#stop{background:#2d1a1a;border-color:#5a2d2d;color:#f44747}
+#stop:hover:not(:disabled){background:#3d2020}
+
+/* slash suggest */
+#suggest{position:absolute;bottom:100%;left:8px;right:8px;background:#252525;border:1px solid #333;border-radius:8px;max-height:40dvh;overflow-y:auto;display:none;box-shadow:0 -6px 24px rgba(0,0,0,.5);margin-bottom:4px}
+#suggest div{padding:10px 14px;cursor:pointer;border-bottom:1px solid #2a2a2a;font-size:13px;color:#888}
+#suggest div:last-child{border-bottom:none}
+#suggest div:hover,#suggest div.sel{background:#2d3748;color:#d4d4d4}
+
+/* scroll-to-bottom */
+#scroll-btn{position:fixed;bottom:90px;right:14px;z-index:100;width:34px;height:34px;border-radius:50%;background:#252525;border:1px solid #3a3a3a;color:#569cd6;font-size:18px;display:none;align-items:center;justify-content:center;padding:0;box-shadow:0 2px 12px rgba(0,0,0,.5);cursor:pointer}
+#scroll-btn.on{display:flex}
+
+/* connection dot */
+#conn{position:fixed;top:13px;right:12px;z-index:200;width:7px;height:7px;border-radius:50%;background:#6a9955;transition:background .3s;pointer-events:none}
+#conn.off{background:#f44747;animation:cpulse 1.5s ease infinite}
+@keyframes cpulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* previews */
+.previewbar{display:flex;gap:6px;align-items:center;padding:8px 12px;background:#1e1e1e;border-bottom:1px solid #2a2a2a;font-size:12px;color:#555;flex-shrink:0}
+.previewbar .label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.previewbody{flex:1;display:flex;align-items:center;justify-content:center;min-height:0;overflow:auto;background:#141414}
+.previewbody img,.previewbody video{max-width:100%;max-height:100%}
+.empty{color:#333;font-size:13px}
+#webFrame{flex:1;border:none;width:100%;background:#fff}
+#webPort{width:70px;font:inherit;font-size:12px;background:#1a1a1a;color:#d4d4d4;border:1px solid #333;border-radius:4px;padding:4px 8px}
 </style>
 </head>
 <body>
+<div id="conn"></div>
+
 <div id="tabs">
   <button data-pane="chat" class="active">Chat<span class="dot"></span></button>
   <button data-pane="image">Image<span class="dot"></span></button>
@@ -73,9 +124,12 @@
   <div id="thinking"></div>
   <div id="bar">
     <div id="suggest"></div>
-    <div id="img-preview"><img id="img-thumb" src=""><button class="clear-img" id="clear-img">✕ Remove</button></div>
-    <textarea id="input" rows="2" placeholder="Message (Ctrl+Enter to send)"></textarea>
-    <button id="attach" title="画像を添付">📎</button>
+    <div id="img-preview">
+      <img id="img-thumb" src="">
+      <button class="clear-img" id="clear-img">✕ Remove</button>
+    </div>
+    <textarea id="input" rows="1" placeholder="Message…"></textarea>
+    <button id="attach" title="Attach image">📎</button>
     <input id="file-input" type="file" accept="image/jpeg,image/png,image/gif,image/webp" style="display:none">
     <button id="mic">🎤</button>
     <button id="send">Send</button>
@@ -87,12 +141,10 @@
   <div class="previewbar"><span class="label" id="imageLabel">Nothing set</span><button id="imageReload">↻ Reload</button></div>
   <div class="previewbody" id="imageBody"><span class="empty">Nothing set — ask Claude to show an image</span></div>
 </div>
-
 <div class="pane" id="pane-video">
   <div class="previewbar"><span class="label" id="videoLabel">Nothing set</span><button id="videoReload">↻ Reload</button></div>
   <div class="previewbody" id="videoBody"><span class="empty">Nothing set — ask Claude to show a video</span></div>
 </div>
-
 <div class="pane" id="pane-web">
   <div class="previewbar">
     <span>port</span><input id="webPort" inputmode="numeric" placeholder="5173">
@@ -103,18 +155,24 @@
   <iframe id="webFrame"></iframe>
 </div>
 
+<button id="scroll-btn">↓</button>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js" crossorigin></script>
 <script>
 const log = document.getElementById('log')
 const input = document.getElementById('input')
-let current = null // current assistant text node
+const thinking = document.getElementById('thinking')
+const sendBtn = document.getElementById('send')
+const scrollBtn = document.getElementById('scroll-btn')
+const connDot = document.getElementById('conn')
+let current = null
 
-// ---- tabs ----
+// ── tabs ──────────────────────────────────────────────────────
 const tabs = [...document.querySelectorAll('#tabs button')]
 function showPane(name) {
   tabs.forEach(b => b.classList.toggle('active', b.dataset.pane === name))
   document.querySelectorAll('.pane').forEach(p => p.classList.toggle('active', p.id === 'pane-' + name))
-  const btn = tabs.find(b => b.dataset.pane === name)
-  btn.querySelector('.dot').style.display = 'none'
+  tabs.find(b => b.dataset.pane === name).querySelector('.dot').style.display = 'none'
   if (name === 'image') refreshImage()
   if (name === 'video') refreshVideo()
 }
@@ -124,9 +182,8 @@ function badge(name) {
   if (!btn.classList.contains('active')) btn.querySelector('.dot').style.display = 'block'
 }
 
-// ---- previews ----
+// ── previews ──────────────────────────────────────────────────
 const state = { image: null, video: null, web: null }
-
 function refreshImage() {
   if (!state.image) return
   document.getElementById('imageLabel').textContent = state.image
@@ -150,139 +207,261 @@ document.getElementById('webGo').onclick = () => {
   const p = Number(document.getElementById('webPort').value)
   if (p) { state.web = p; refreshWeb() }
 }
-
-// restore previews on page load
 fetch('/preview/state').then(r => r.json()).then(s => {
-  if (s.image) { state.image = s.image }
-  if (s.video) { state.video = s.video }
-  if (s.web) { state.web = s.web }
+  if (s.image) state.image = s.image
+  if (s.video) state.video = s.video
+  if (s.web) state.web = s.web
 }).catch(() => {})
 
-// ---- chat log ----
+// ── scroll tracking ────────────────────────────────────────────
+let userScrolled = false
+log.addEventListener('scroll', () => {
+  const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 80
+  userScrolled = !atBottom
+  scrollBtn.classList.toggle('on', userScrolled && document.getElementById('pane-chat').classList.contains('active'))
+})
+scrollBtn.onclick = () => {
+  log.scrollTop = log.scrollHeight
+  userScrolled = false
+  scrollBtn.classList.remove('on')
+}
+
+// ── chat log helpers ───────────────────────────────────────────
 function line(cls, text) {
   const div = document.createElement('div')
   div.className = cls
   div.textContent = text
   log.appendChild(div)
-  log.scrollTop = log.scrollHeight
+  if (!userScrolled) log.scrollTop = log.scrollHeight
   return div
 }
 
-// ---- markdown renderer (no deps) ----------------------------------------
-function escHtml(s) {
+// ── markdown renderer ─────────────────────────────────────────
+function esc(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
 }
-function renderInline(text) {
-  let h = escHtml(text)
-  h = h.replace(/`([^`\n]+)`/g, (_, c) => `<code>${c}</code>`)
-  h = h.replace(/\*\*\*([^*\n]+)\*\*\*/g, '<strong><em>$1</em></strong>')
-  h = h.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+
+// copy button handler — called via onclick in generated HTML
+function copyCode(btn) {
+  const code = btn.closest('.code-wrap').querySelector('code').innerText
+  const done = () => {
+    btn.textContent = 'Copied!'
+    btn.classList.add('ok')
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('ok') }, 2000)
+  }
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(code).then(done).catch(done)
+  } else {
+    const ta = Object.assign(document.createElement('textarea'), {
+      value: code, style: 'position:fixed;opacity:0'
+    })
+    document.body.appendChild(ta); ta.select(); document.execCommand('copy')
+    document.body.removeChild(ta); done()
+  }
+}
+
+// inline markdown on already-escaped HTML string
+function inl(h) {
+  // links — only allow http/https/mailto
+  h = h.replace(/\[([^\]]*)\]\(([^)]*)\)/g, (_, text, url) => {
+    const safe = /^https?:|^mailto:/i.test(url.replace(/&amp;/g,'&')) ? url : '#'
+    return `<a href="${safe}" target="_blank" rel="noopener noreferrer">${text}</a>`
+  })
+  h = h.replace(/`([^`]+)`/g, '<code>$1</code>')
+  h = h.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>')
+  h = h.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
   h = h.replace(/\*([^*\n]+)\*/g, '<em>$1</em>')
-  h = h.replace(/^### (.+)$/gm, '<h4>$1</h4>')
-  h = h.replace(/^## (.+)$/gm, '<h3>$1</h3>')
-  h = h.replace(/^# (.+)$/gm, '<h2>$1</h2>')
-  h = h.replace(/^[-*] (.+)$/gm, '<li>$1</li>')
-  h = h.replace(/((?:<li>[^\n]*\n?)+)/g, '<ul>$1</ul>')
-  h = h.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>')
-  h = h.replace(/^---+$/gm, '<hr>')
-  h = h.replace(/\n/g, '<br>')
+  h = h.replace(/~~([^~]+)~~/g, '<del>$1</del>')
   return h
 }
-function renderMarkdown(raw) {
-  // Close unclosed code fences for streaming safety
-  const fenceCount = (raw.match(/```/g) || []).length
-  const src = fenceCount % 2 === 1 ? raw + '\n```' : raw
+
+// block-level renderer: processes line by line
+function renderBlock(text) {
+  const lines = esc(text).split('\n')
   const out = []
-  let lastIdx = 0
-  const RE = /```(\w*)\n([\s\S]*?)```/g
-  let m
-  while ((m = RE.exec(src)) !== null) {
-    if (m.index > lastIdx) out.push(renderInline(src.slice(lastIdx, m.index)))
-    out.push(`<pre><code>${escHtml(m[2])}</code></pre>`)
-    lastIdx = m.index + m[0].length
+  let listType = null
+  let tableLines = []
+
+  function closeList() {
+    if (listType) { out.push(`</${listType}>`); listType = null }
   }
-  if (lastIdx < src.length) out.push(renderInline(src.slice(lastIdx)))
+  function flushTable() {
+    if (!tableLines.length) return
+    const rows = tableLines.filter((_, i) => i !== 1)
+    if (!rows.length) { tableLines = []; return }
+    const head = rows[0].split('|').map(c => c.trim()).filter(Boolean)
+    const body = rows.slice(1)
+    out.push('<table><thead><tr>' + head.map(c => `<th>${inl(c)}</th>`).join('') + '</tr></thead><tbody>')
+    body.forEach(row => {
+      const cells = row.split('|').map(c => c.trim()).filter(c => c !== '')
+      if (cells.length) out.push('<tr>' + cells.map(c => `<td>${inl(c)}</td>`).join('') + '</tr>')
+    })
+    out.push('</tbody></table>')
+    tableLines = []
+  }
+
+  for (const line of lines) {
+    // table detection: line starts with |
+    if (line.trimStart().startsWith('|')) {
+      closeList(); tableLines.push(line); continue
+    } else {
+      flushTable()
+    }
+
+    const head = line.match(/^(#{1,4}) (.*)$/)
+    const ulItem = line.match(/^[*-] (.+)$/)
+    const olItem = line.match(/^(\d+)\. (.+)$/)
+    const bq = line.match(/^&gt; (.+)$/)
+
+    if (head) {
+      closeList()
+      const lvl = head[1].length
+      out.push(`<h${lvl}>${inl(head[2])}</h${lvl}>`)
+    } else if (/^[-*]{3,}$/.test(line)) {
+      closeList(); out.push('<hr>')
+    } else if (ulItem) {
+      if (listType !== 'ul') { closeList(); out.push('<ul>'); listType = 'ul' }
+      out.push(`<li>${inl(ulItem[1])}</li>`)
+    } else if (olItem) {
+      if (listType !== 'ol') { closeList(); out.push('<ol>'); listType = 'ol' }
+      out.push(`<li>${inl(olItem[2])}</li>`)
+    } else if (bq) {
+      closeList(); out.push(`<blockquote>${inl(bq[1])}</blockquote>`)
+    } else if (line === '') {
+      closeList(); out.push('<br>')
+    } else {
+      closeList(); out.push(inl(line) + '<br>')
+    }
+  }
+  closeList(); flushTable()
   return out.join('')
 }
 
-// ---- busy / thinking state -----------------------------------------------
+function renderMarkdown(raw) {
+  // close unclosed code fences for streaming safety
+  const n = (raw.match(/```/g) || []).length
+  const src = n % 2 === 1 ? raw + '\n```' : raw
+  const out = []
+  let last = 0
+  const RE = /```(\w*)\n([\s\S]*?)```/g
+  let m
+  while ((m = RE.exec(src)) !== null) {
+    if (m.index > last) out.push(renderBlock(src.slice(last, m.index)))
+    const lang = m[1] || ''
+    const code = m[2]
+    let highlighted = esc(code)
+    if (window.hljs) {
+      try {
+        highlighted = lang
+          ? hljs.highlight(code, { language: lang, ignoreIllegals: true }).value
+          : hljs.highlightAuto(code).value
+      } catch { /* fallback to escaped */ }
+    }
+    const langLabel = esc(lang || 'code')
+    out.push(
+      `<div class="code-wrap">` +
+      `<div class="code-header"><span class="lang-label">${langLabel}</span>` +
+      `<button class="copy-btn" onclick="copyCode(this)">Copy</button></div>` +
+      `<pre class="hljs"><code${lang ? ` class="language-${langLabel}"` : ' class="plain"'}>${highlighted}</code></pre>` +
+      `</div>`
+    )
+    last = m.index + m[0].length
+  }
+  if (last < src.length) out.push(renderBlock(src.slice(last)))
+  return out.join('')
+}
+
+// ── busy / thinking / RAF rendering ───────────────────────────
 let isBusy = false
 let rawText = ''
-const thinking = document.getElementById('thinking')
-const sendBtn = document.getElementById('send')
+let rafId = null
 
 function setBusy(busy) {
   isBusy = busy
   sendBtn.disabled = busy
   input.disabled = busy
-  if (busy) thinking.classList.add('on')
-  else thinking.classList.remove('on')
+  thinking.classList.toggle('on', busy)
+  if (!busy && rafId) { cancelAnimationFrame(rafId); rafId = null }
 }
 
+function scheduleRender() {
+  if (rafId) return
+  rafId = requestAnimationFrame(() => {
+    rafId = null
+    if (current) {
+      current.innerHTML = renderMarkdown(rawText)
+      if (!userScrolled) log.scrollTop = log.scrollHeight
+    }
+  })
+}
+
+// ── SSE ───────────────────────────────────────────────────────
 const es = new EventSource('/events')
+es.onopen = () => connDot.classList.remove('off')
+es.onerror = () => {
+  connDot.classList.add('off')
+  setBusy(false)
+  line('warn', '⚡ connection lost — reconnecting…')
+}
+
 es.onmessage = (e) => {
   const ev = JSON.parse(e.data)
+
   if (ev.type === 'text') {
-    thinking.classList.remove('on') // first token hides the indicator
+    thinking.classList.remove('on')
     rawText += ev.text
     if (!current) {
       current = document.createElement('div')
       current.className = 'assistant'
       log.appendChild(current)
     }
-    current.innerHTML = renderMarkdown(rawText)
-    log.scrollTop = log.scrollHeight
+    scheduleRender()
+
   } else if (ev.type === 'tool') {
-    rawText = ''
-    current = null
-    thinking.classList.remove('on')
+    rawText = ''; current = null; thinking.classList.remove('on')
     line('tool', '⏺ ' + ev.name + ' …')
+
   } else if (ev.type === 'tool_input') {
     const last = log.lastElementChild
-    if (last && last.className === 'tool' && last.textContent === '⏺ ' + ev.name + ' …') {
+    if (last?.className === 'tool' && last.textContent === '⏺ ' + ev.name + ' …')
       last.textContent = '⏺ ' + ev.name + ': ' + ev.summary
-    } else {
-      line('tool', '⏺ ' + ev.name + ': ' + ev.summary)
-    }
+    else line('tool', '⏺ ' + ev.name + ': ' + ev.summary)
+
   } else if (ev.type === 'image') {
-    state.image = ev.label
-    badge('image')
+    state.image = ev.label; badge('image')
     if (document.getElementById('pane-image').classList.contains('active')) refreshImage()
+
   } else if (ev.type === 'video') {
-    state.video = ev.label
-    badge('video')
+    state.video = ev.label; badge('video')
     if (document.getElementById('pane-video').classList.contains('active')) refreshVideo()
+
   } else if (ev.type === 'web') {
-    state.web = ev.port
-    badge('web')
+    state.web = ev.port; badge('web')
     if (document.getElementById('pane-web').classList.contains('active')) refreshWeb()
+
   } else if (ev.type === 'permission') {
-    rawText = ''
-    current = null
-    thinking.classList.remove('on')
+    rawText = ''; current = null; thinking.classList.remove('on')
     const div = line('perm', `⚠ ${ev.tool}: ${ev.summary}`)
     div.dataset.permId = ev.id
     for (const [label, allow] of [['Allow', true], ['Deny', false]]) {
       const btn = document.createElement('button')
       btn.textContent = label
       btn.onclick = () => fetch('/permission', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: ev.id, allow }),
       })
       div.appendChild(btn)
     }
+
   } else if (ev.type === 'permission_resolved') {
     const div = log.querySelector(`[data-perm-id="${ev.id}"]`)
     if (div) {
-      div.querySelectorAll('button').forEach((b) => b.remove())
+      div.querySelectorAll('button').forEach(b => b.remove())
       div.textContent += ev.allow ? '  → allowed' : '  → denied'
     }
+
   } else if (ev.type === 'clear') {
-    log.innerHTML = ''
-    current = null
-    rawText = ''
-    setBusy(false)
+    log.innerHTML = ''; current = null; rawText = ''; setBusy(false)
     state.image = state.video = state.web = null
     document.getElementById('imageLabel').textContent = 'Nothing set'
     document.getElementById('imageBody').innerHTML = '<span class="empty">Nothing set — ask Claude to show an image</span>'
@@ -292,65 +471,51 @@ es.onmessage = (e) => {
     document.getElementById('webPort').value = ''
     document.getElementById('webFrame').src = 'about:blank'
     tabs.forEach(b => (b.querySelector('.dot').style.display = 'none'))
+
   } else if (ev.type === 'user') {
-    current = null
-    rawText = ''
+    current = null; rawText = ''
     line('user', '> ' + ev.text)
     setBusy(true)
+
   } else if (ev.type === 'done') {
-    current = null
-    rawText = ''
-    setBusy(false)
+    current = null; rawText = ''; setBusy(false)
     line('meta', `— done (${ev.num_turns} turns, ${Math.round(ev.duration_ms / 1000)}s)`)
+
   } else if (ev.type === 'init') {
     line('meta', `[session] model=${ev.model} cwd=${ev.cwd}`)
+
   } else if (ev.type === 'info') {
     current = null
-    const cls = ev.text.includes('crashed') ? 'warn' : 'meta'
-    line(cls, ev.text)
+    line(ev.text.includes('crashed') ? 'warn' : 'meta', ev.text)
     if (ev.text.includes('restarting')) setBusy(false)
+
   } else if (ev.type === 'error') {
-    current = null
-    rawText = ''
-    setBusy(false)
+    current = null; rawText = ''; setBusy(false)
     line('error', '⚠ ' + ev.message)
   }
 }
-es.onerror = () => {
-  setBusy(false)
-  line('warn', '⚡ connection lost — reconnecting…')
-}
 
-// ---- image attachment ----
-let pendingImage = null // { data: base64, mediaType, objectUrl }
-
+// ── image attachment ───────────────────────────────────────────
+let pendingImage = null
 const imgPreview = document.getElementById('img-preview')
 const imgThumb = document.getElementById('img-thumb')
 
 function setPendingImage(file) {
   if (!file) return
-  const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
-  if (!allowed.includes(file.type)) {
-    alert('Supported formats: JPEG, PNG, GIF, WebP')
-    return
+  if (!['image/jpeg','image/png','image/gif','image/webp'].includes(file.type)) {
+    alert('Supported formats: JPEG, PNG, GIF, WebP'); return
   }
-  const MAX_PX = 1920
   const reader = new FileReader()
   reader.onload = () => {
     const img = new Image()
     img.onload = () => {
-      let { width, height } = img
-      if (width > MAX_PX || height > MAX_PX) {
-        const scale = MAX_PX / Math.max(width, height)
-        width = Math.round(width * scale)
-        height = Math.round(height * scale)
-      }
-      const canvas = document.createElement('canvas')
-      canvas.width = width
-      canvas.height = height
-      canvas.getContext('2d').drawImage(img, 0, 0, width, height)
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
-      const data = dataUrl.split(',')[1]
+      const MAX = 1920
+      let { width: w, height: h } = img
+      if (w > MAX || h > MAX) { const s = MAX / Math.max(w, h); w = Math.round(w*s); h = Math.round(h*s) }
+      const c = document.createElement('canvas')
+      c.width = w; c.height = h
+      c.getContext('2d').drawImage(img, 0, 0, w, h)
+      const data = c.toDataURL('image/jpeg', .85).split(',')[1]
       pendingImage = { data, mediaType: 'image/jpeg', objectUrl: URL.createObjectURL(file) }
       imgThumb.src = pendingImage.objectUrl
       imgPreview.style.display = 'flex'
@@ -359,23 +524,16 @@ function setPendingImage(file) {
   }
   reader.readAsDataURL(file)
 }
-
 document.getElementById('clear-img').onclick = () => {
   if (pendingImage?.objectUrl) URL.revokeObjectURL(pendingImage.objectUrl)
-  pendingImage = null
-  imgPreview.style.display = 'none'
-  imgThumb.src = ''
+  pendingImage = null; imgPreview.style.display = 'none'; imgThumb.src = ''
 }
-
 document.getElementById('attach').onclick = () => document.getElementById('file-input').click()
-document.getElementById('file-input').onchange = (e) => {
-  if (e.target.files[0]) setPendingImage(e.target.files[0])
-  e.target.value = ''
+document.getElementById('file-input').onchange = e => {
+  if (e.target.files[0]) setPendingImage(e.target.files[0]); e.target.value = ''
 }
-
-document.addEventListener('paste', (e) => {
-  const items = e.clipboardData?.items ?? []
-  for (const item of items) {
+document.addEventListener('paste', e => {
+  for (const item of e.clipboardData?.items ?? []) {
     if (item.kind === 'file' && item.type.startsWith('image/')) {
       const file = item.getAsFile()
       if (file) { setPendingImage(file); e.preventDefault() }
@@ -384,31 +542,36 @@ document.addEventListener('paste', (e) => {
   }
 })
 
+// ── send ──────────────────────────────────────────────────────
 async function send() {
   const text = input.value.trim()
   if (!text && !pendingImage) return
   if (isBusy) return
   input.value = ''
+  input.style.height = 'auto'
   const body = { text }
   if (pendingImage) {
     body.image = { data: pendingImage.data, mediaType: pendingImage.mediaType }
     if (pendingImage.objectUrl) URL.revokeObjectURL(pendingImage.objectUrl)
-    pendingImage = null
-    imgPreview.style.display = 'none'
-    imgThumb.src = ''
+    pendingImage = null; imgPreview.style.display = 'none'; imgThumb.src = ''
   }
   await fetch('/message', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
 }
 document.getElementById('send').onclick = send
 document.getElementById('stop').onclick = () => fetch('/interrupt', { method: 'POST' })
 
-// ---- slash command suggest ----
+// ── auto-resize textarea ──────────────────────────────────────
+input.addEventListener('input', () => {
+  input.style.height = 'auto'
+  input.style.height = Math.min(input.scrollHeight, 180) + 'px'
+})
+
+// ── slash commands ────────────────────────────────────────────
 const suggest = document.getElementById('suggest')
-let commands = ['clear', 'compact', 'context', 'usage'] // fallback until /commands responds
+let commands = ['clear', 'compact', 'context', 'usage']
 fetch('/commands').then(r => r.json()).then(d => {
   if (d.commands?.length) commands = d.commands
 }).catch(() => {})
@@ -430,25 +593,22 @@ function renderSuggest() {
   suggest.style.display = 'block'
 }
 input.addEventListener('input', renderSuggest)
-input.addEventListener('keydown', (e) => {
+input.addEventListener('keydown', e => {
   if (suggest.style.display === 'block' && (e.key === 'Tab' || e.key === 'Enter') && !e.ctrlKey) {
-    e.preventDefault()
-    suggest.firstElementChild?.onclick()
-    return
+    e.preventDefault(); suggest.firstElementChild?.onclick(); return
   }
   if (e.key === 'Escape') suggest.style.display = 'none'
   if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); send() }
 })
 
-// ---- voice input (Web Speech API: needs HTTPS or localhost — tailscale serve provides HTTPS) ----
+// ── voice input ───────────────────────────────────────────────
 const micBtn = document.getElementById('mic')
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition
 if (!SR) {
   micBtn.disabled = true
   micBtn.title = 'Speech recognition not supported in this browser'
 } else {
-  let rec = null
-  let baseText = ''
+  let rec = null, baseText = ''
   micBtn.onclick = () => {
     if (rec) { rec.stop(); return }
     rec = new SR()
@@ -456,20 +616,17 @@ if (!SR) {
     rec.interimResults = true
     rec.continuous = true
     baseText = input.value
-    micBtn.style.background = '#a33'
-    rec.onresult = (e) => {
-      let finalText = ''
-      let interim = ''
+    micBtn.style.cssText = 'background:#5a1a1a;border-color:#8a2a2a;color:#f44747'
+    rec.onresult = e => {
+      let final = '', interim = ''
       for (const r of e.results) {
-        if (r.isFinal) finalText += r[0].transcript
+        if (r.isFinal) final += r[0].transcript
         else interim += r[0].transcript
       }
-      input.value = baseText + finalText + interim
+      input.value = baseText + final + interim
+      input.dispatchEvent(new Event('input'))
     }
-    rec.onend = () => {
-      micBtn.style.background = ''
-      rec = null
-    }
+    rec.onend = () => { micBtn.style.cssText = ''; rec = null }
     rec.onerror = rec.onend
     rec.start()
   }
