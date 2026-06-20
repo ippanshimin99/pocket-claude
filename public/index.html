@@ -395,30 +395,41 @@ function scheduleRender() {
   })
 }
 
-// ── SSE ───────────────────────────────────────────────────────
-const es = new EventSource('/events')
-es.onopen = () => connDot.classList.remove('off')
-es.onerror = () => {
-  connDot.classList.add('off')
-  setBusy(false)
-  line('warn', '⚡ connection lost — reconnecting…')
+// ── 履歴永続化（localStorage）─────────────────────────────────
+const STORAGE_KEY = 'pc_history_v2'
+const MAX_STORED = 500
+
+function loadStored() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]') } catch { return [] }
+}
+function saveToStorage(ev) {
+  try {
+    const arr = loadStored()
+    arr.push(ev)
+    if (arr.length > MAX_STORED) arr.splice(0, arr.length - MAX_STORED)
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(arr))
+  } catch {}
+}
+function clearStorage() {
+  try { localStorage.removeItem(STORAGE_KEY) } catch {}
 }
 
-es.onmessage = (e) => {
-  const ev = JSON.parse(e.data)
-
+// ── イベントハンドラ（replay/live共通）────────────────────────
+function handleEvent(ev, isReplay) {
   if (ev.type === 'text') {
-    thinking.classList.remove('on')
+    if (!isReplay) thinking.classList.remove('on')
     rawText += ev.text
     if (!current) {
       current = document.createElement('div')
       current.className = 'assistant'
       log.appendChild(current)
     }
-    scheduleRender()
+    if (!isReplay) scheduleRender()
 
   } else if (ev.type === 'tool') {
-    rawText = ''; current = null; thinking.classList.remove('on')
+    if (isReplay && current && rawText) current.innerHTML = renderMarkdown(rawText)
+    rawText = ''; current = null
+    if (!isReplay) thinking.classList.remove('on')
     line('tool', '⏺ ' + ev.name + ' …')
 
   } else if (ev.type === 'tool_input') {
@@ -428,40 +439,51 @@ es.onmessage = (e) => {
     else line('tool', '⏺ ' + ev.name + ': ' + ev.summary)
 
   } else if (ev.type === 'image') {
-    state.image = ev.label; badge('image')
-    if (document.getElementById('pane-image').classList.contains('active')) refreshImage()
+    state.image = ev.label
+    if (!isReplay) { badge('image'); if (document.getElementById('pane-image').classList.contains('active')) refreshImage() }
 
   } else if (ev.type === 'video') {
-    state.video = ev.label; badge('video')
-    if (document.getElementById('pane-video').classList.contains('active')) refreshVideo()
+    state.video = ev.label
+    if (!isReplay) { badge('video'); if (document.getElementById('pane-video').classList.contains('active')) refreshVideo() }
 
   } else if (ev.type === 'web') {
-    state.web = ev.port; badge('web')
-    if (document.getElementById('pane-web').classList.contains('active')) refreshWeb()
+    state.web = ev.port
+    if (!isReplay) { badge('web'); if (document.getElementById('pane-web').classList.contains('active')) refreshWeb() }
 
   } else if (ev.type === 'permission') {
-    rawText = ''; current = null; thinking.classList.remove('on')
+    if (isReplay && current && rawText) current.innerHTML = renderMarkdown(rawText)
+    rawText = ''; current = null
+    if (!isReplay) thinking.classList.remove('on')
     const div = line('perm', `⚠ ${ev.tool}: ${ev.summary}`)
     div.dataset.permId = ev.id
-    for (const [label, allow] of [['Allow', true], ['Deny', false]]) {
-      const btn = document.createElement('button')
-      btn.textContent = label
-      btn.onclick = () => fetch('/permission', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: ev.id, allow }),
-      })
-      div.appendChild(btn)
+    if (!isReplay) {
+      for (const [label, allow] of [['Allow', true], ['Deny', false]]) {
+        const btn = document.createElement('button')
+        btn.textContent = label
+        btn.onclick = () => fetch('/permission', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: ev.id, allow }),
+        })
+        div.appendChild(btn)
+      }
+    } else {
+      const s = document.createElement('span')
+      s.style.cssText = 'color:#555;font-size:11px;margin-left:8px'
+      s.textContent = '（処理済み）'
+      div.appendChild(s)
     }
 
   } else if (ev.type === 'permission_resolved') {
     const div = log.querySelector(`[data-perm-id="${ev.id}"]`)
     if (div) {
-      div.querySelectorAll('button').forEach(b => b.remove())
+      div.querySelectorAll('button,span').forEach(b => b.remove())
       div.textContent += ev.allow ? '  → allowed' : '  → denied'
     }
 
   } else if (ev.type === 'clear') {
-    log.innerHTML = ''; current = null; rawText = ''; setBusy(false)
+    log.innerHTML = ''; current = null; rawText = ''
+    if (!isReplay) setBusy(false)
+    clearStorage()
     state.image = state.video = state.web = null
     document.getElementById('imageLabel').textContent = 'Nothing set'
     document.getElementById('imageBody').innerHTML = '<span class="empty">Nothing set — ask Claude to show an image</span>'
@@ -473,27 +495,75 @@ es.onmessage = (e) => {
     tabs.forEach(b => (b.querySelector('.dot').style.display = 'none'))
 
   } else if (ev.type === 'user') {
+    if (isReplay && current && rawText) current.innerHTML = renderMarkdown(rawText)
     current = null; rawText = ''
     line('user', '> ' + ev.text)
-    setBusy(true)
+    if (!isReplay) setBusy(true)
 
   } else if (ev.type === 'done') {
-    current = null; rawText = ''; setBusy(false)
+    if (isReplay && current && rawText) current.innerHTML = renderMarkdown(rawText)
+    current = null; rawText = ''
+    if (!isReplay) setBusy(false)
     line('meta', `— done (${ev.num_turns} turns, ${Math.round(ev.duration_ms / 1000)}s)`)
 
   } else if (ev.type === 'init') {
-    line('meta', `[session] model=${ev.model} cwd=${ev.cwd}`)
+    if (!isReplay) line('meta', `[session] model=${ev.model} cwd=${ev.cwd}`)
 
   } else if (ev.type === 'info') {
     current = null
     line(ev.text.includes('crashed') ? 'warn' : 'meta', ev.text)
-    if (ev.text.includes('restarting')) setBusy(false)
+    if (!isReplay && ev.text.includes('restarting')) setBusy(false)
 
   } else if (ev.type === 'error') {
-    current = null; rawText = ''; setBusy(false)
+    current = null; rawText = ''
+    if (!isReplay) setBusy(false)
     line('error', '⚠ ' + ev.message)
   }
 }
+
+// ── localStorageから即時復元 ───────────────────────────────────
+let lastSeq = 0
+;(function () {
+  const stored = loadStored()
+  if (!stored.length) return
+  stored.forEach(ev => {
+    if (ev.seq) lastSeq = Math.max(lastSeq, ev.seq)
+    handleEvent(ev, true)
+  })
+  // 未完了応答があれば描画して閉じる
+  if (current && rawText) { current.innerHTML = renderMarkdown(rawText); current = null; rawText = '' }
+  setBusy(false)
+})()
+
+// ── SSE（差分のみ受信・自動再接続）───────────────────────────
+let es = null
+
+function connectSSE() {
+  if (es) { try { es.close() } catch {} }
+  es = new EventSource(`/events?since=${lastSeq}`)
+  es.onopen = () => connDot.classList.remove('off')
+  es.onerror = () => {
+    connDot.classList.add('off')
+    setBusy(false)
+    line('warn', '⚡ connection lost — reconnecting…')
+  }
+  es.onmessage = (e) => {
+    const ev = JSON.parse(e.data)
+    if (ev.seq && ev.seq <= lastSeq) return // 重複防止
+    if (ev.seq) lastSeq = ev.seq
+    saveToStorage(ev)
+    handleEvent(ev, false)
+  }
+}
+
+connectSSE()
+
+// iOS Safari: タブ復帰時にSSEを再接続
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && es?.readyState === EventSource.CLOSED) {
+    connectSSE()
+  }
+})
 
 // ── image attachment ───────────────────────────────────────────
 let pendingImage = null

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, watchFile } from 'node:fs'
+import { existsSync, readFileSync, watchFile, writeFile } from 'node:fs'
 import { request as httpRequest } from 'node:http'
 import { connect as netConnect } from 'node:net'
 import { homedir } from 'node:os'
@@ -37,15 +37,46 @@ watchFile(contextPath, { persistent: false, interval: 2000 }, () => {
   broadcast({ type: 'info', text: '(context.md が更新されました — /restart で新しいコンテキストを反映)' })
 })
 
+// ---- 履歴永続化 -----------------------------------------------------------
+// history.json に保存しサーバー再起動後も復元する
+const historyPath = join(__dirname, 'history.json')
+let eventSeq = 0
+
 // ---- SSE broadcast -------------------------------------------------------
 const clients = new Set()
-const history = [] // replay buffer so reconnecting browsers catch up
+const history = []
 const HISTORY_MAX = 500
 
+// 起動時に保存済み履歴を復元
+if (existsSync(historyPath)) {
+  try {
+    const saved = JSON.parse(readFileSync(historyPath, 'utf8'))
+    history.push(...saved.slice(-HISTORY_MAX))
+    eventSeq = history.reduce((m, e) => Math.max(m, e.seq || 0), 0)
+  } catch { /* 壊れていたら無視 */ }
+}
+
+// 書き込みデバウンス（1秒）
+let saveTimer = null
+function scheduleSave() {
+  if (saveTimer) clearTimeout(saveTimer)
+  saveTimer = setTimeout(() => {
+    writeFile(historyPath, JSON.stringify(history), () => {})
+  }, 1000)
+}
+
+function clearHistory() {
+  history.length = 0
+  eventSeq = 0
+  writeFile(historyPath, '[]', () => {})
+}
+
 function broadcast(ev) {
-  history.push(ev)
+  const seqEv = { ...ev, seq: ++eventSeq }
+  history.push(seqEv)
   if (history.length > HISTORY_MAX) history.shift()
-  const data = `data: ${JSON.stringify(ev)}\n\n`
+  scheduleSave()
+  const data = `data: ${JSON.stringify(seqEv)}\n\n`
   for (const res of clients) res.write(data)
 }
 
@@ -302,7 +333,11 @@ app.get('/events', (req, res) => {
     Connection: 'keep-alive',
   })
   res.flushHeaders()
-  for (const ev of history) res.write(`data: ${JSON.stringify(ev)}\n\n`)
+  // クライアントが既に持っているseqより新しいイベントだけ送る
+  const since = Number(req.query.since) || 0
+  for (const ev of history) {
+    if ((ev.seq || 0) > since) res.write(`data: ${JSON.stringify(ev)}\n\n`)
+  }
   clients.add(res)
   req.on('close', () => clients.delete(res))
 })
@@ -317,7 +352,7 @@ app.post('/message', async (req, res) => {
   // /clear resets the SDK context — wipe the UI log, the replay buffer,
   // and all previews, so everything starts blank everywhere.
   if (text.trim() === '/clear') {
-    history.length = 0
+    clearHistory()
     latestMedia.image = null
     latestMedia.video = null
     webPort = null
@@ -326,7 +361,7 @@ app.post('/message', async (req, res) => {
 
   // /restart: context.md を再読み込みしてセッションを新規起動する
   if (text.trim() === '/restart') {
-    history.length = 0
+    clearHistory()
     latestMedia.image = null
     latestMedia.video = null
     webPort = null
