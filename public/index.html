@@ -36,6 +36,28 @@
   .empty { color: #555; }
   #webFrame { flex: 1; border: none; width: 100%; background: #fff; }
   #webPort { width: 70px; font: inherit; background: #1e1e1e; color: #ddd; border: 1px solid #444; border-radius: 4px; padding: 4px 6px; }
+  /* markdown */
+  .assistant pre { background: #252525; border: 1px solid #383838; border-radius: 6px; padding: 10px 14px; overflow-x: auto; margin: 6px 0; }
+  .assistant pre code { background: none; padding: 0; color: #ddd; font-size: 13px; }
+  .assistant :not(pre) > code { background: #2d2d2d; color: #b8bb26; padding: 2px 6px; border-radius: 3px; font-size: 13px; }
+  .assistant h2 { color: #8ec07c; font-size: 1em; margin: 10px 0 3px; padding-bottom: 3px; border-bottom: 1px solid #3a3a3a; }
+  .assistant h3, .assistant h4 { color: #8ec07c; font-size: 1em; margin: 8px 0 2px; }
+  .assistant strong { color: #fabd2f; }
+  .assistant em { color: #83a598; }
+  .assistant ul, .assistant ol { margin: 4px 0; padding-left: 22px; }
+  .assistant li { margin: 2px 0; }
+  .assistant blockquote { border-left: 3px solid #555; margin: 4px 0; padding-left: 12px; color: #888; }
+  .assistant hr { border: none; border-top: 1px solid #3a3a3a; margin: 8px 0; }
+  .assistant a { color: #83a598; }
+  /* thinking indicator */
+  #thinking { display: none; color: #555; font-size: 13px; padding: 2px 12px 4px; }
+  #thinking.on { display: block; }
+  #thinking::after { content: '▋'; animation: blink .8s step-end infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+  /* busy state */
+  #send:disabled, #input:disabled { opacity: .45; cursor: not-allowed; }
+  .error { color: #fb4934; background: #1f0a0a; border-left: 3px solid #fb4934; padding: 4px 8px; border-radius: 0 4px 4px 0; }
+  .warn { color: #fabd2f; font-size: 12px; }
 </style>
 </head>
 <body>
@@ -48,6 +70,7 @@
 
 <div class="pane active" id="pane-chat">
   <div id="log"></div>
+  <div id="thinking"></div>
   <div id="bar">
     <div id="suggest"></div>
     <div id="img-preview"><img id="img-thumb" src=""><button class="clear-img" id="clear-img">✕ Remove</button></div>
@@ -145,15 +168,74 @@ function line(cls, text) {
   return div
 }
 
+// ---- markdown renderer (no deps) ----------------------------------------
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+}
+function renderInline(text) {
+  let h = escHtml(text)
+  h = h.replace(/`([^`\n]+)`/g, (_, c) => `<code>${c}</code>`)
+  h = h.replace(/\*\*\*([^*\n]+)\*\*\*/g, '<strong><em>$1</em></strong>')
+  h = h.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+  h = h.replace(/\*([^*\n]+)\*/g, '<em>$1</em>')
+  h = h.replace(/^### (.+)$/gm, '<h4>$1</h4>')
+  h = h.replace(/^## (.+)$/gm, '<h3>$1</h3>')
+  h = h.replace(/^# (.+)$/gm, '<h2>$1</h2>')
+  h = h.replace(/^[-*] (.+)$/gm, '<li>$1</li>')
+  h = h.replace(/((?:<li>[^\n]*\n?)+)/g, '<ul>$1</ul>')
+  h = h.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>')
+  h = h.replace(/^---+$/gm, '<hr>')
+  h = h.replace(/\n/g, '<br>')
+  return h
+}
+function renderMarkdown(raw) {
+  // Close unclosed code fences for streaming safety
+  const fenceCount = (raw.match(/```/g) || []).length
+  const src = fenceCount % 2 === 1 ? raw + '\n```' : raw
+  const out = []
+  let lastIdx = 0
+  const RE = /```(\w*)\n([\s\S]*?)```/g
+  let m
+  while ((m = RE.exec(src)) !== null) {
+    if (m.index > lastIdx) out.push(renderInline(src.slice(lastIdx, m.index)))
+    out.push(`<pre><code>${escHtml(m[2])}</code></pre>`)
+    lastIdx = m.index + m[0].length
+  }
+  if (lastIdx < src.length) out.push(renderInline(src.slice(lastIdx)))
+  return out.join('')
+}
+
+// ---- busy / thinking state -----------------------------------------------
+let isBusy = false
+let rawText = ''
+const thinking = document.getElementById('thinking')
+const sendBtn = document.getElementById('send')
+
+function setBusy(busy) {
+  isBusy = busy
+  sendBtn.disabled = busy
+  input.disabled = busy
+  if (busy) thinking.classList.add('on')
+  else thinking.classList.remove('on')
+}
+
 const es = new EventSource('/events')
 es.onmessage = (e) => {
   const ev = JSON.parse(e.data)
   if (ev.type === 'text') {
-    if (!current) current = line('assistant', '')
-    current.textContent += ev.text
+    thinking.classList.remove('on') // first token hides the indicator
+    rawText += ev.text
+    if (!current) {
+      current = document.createElement('div')
+      current.className = 'assistant'
+      log.appendChild(current)
+    }
+    current.innerHTML = renderMarkdown(rawText)
     log.scrollTop = log.scrollHeight
   } else if (ev.type === 'tool') {
+    rawText = ''
     current = null
+    thinking.classList.remove('on')
     line('tool', '⏺ ' + ev.name + ' …')
   } else if (ev.type === 'tool_input') {
     const last = log.lastElementChild
@@ -175,7 +257,9 @@ es.onmessage = (e) => {
     badge('web')
     if (document.getElementById('pane-web').classList.contains('active')) refreshWeb()
   } else if (ev.type === 'permission') {
+    rawText = ''
     current = null
+    thinking.classList.remove('on')
     const div = line('perm', `⚠ ${ev.tool}: ${ev.summary}`)
     div.dataset.permId = ev.id
     for (const [label, allow] of [['Allow', true], ['Deny', false]]) {
@@ -197,6 +281,8 @@ es.onmessage = (e) => {
   } else if (ev.type === 'clear') {
     log.innerHTML = ''
     current = null
+    rawText = ''
+    setBusy(false)
     state.image = state.video = state.web = null
     document.getElementById('imageLabel').textContent = 'Nothing set'
     document.getElementById('imageBody').innerHTML = '<span class="empty">Nothing set — ask Claude to show an image</span>'
@@ -208,21 +294,32 @@ es.onmessage = (e) => {
     tabs.forEach(b => (b.querySelector('.dot').style.display = 'none'))
   } else if (ev.type === 'user') {
     current = null
+    rawText = ''
     line('user', '> ' + ev.text)
+    setBusy(true)
   } else if (ev.type === 'done') {
     current = null
+    rawText = ''
+    setBusy(false)
     line('meta', `— done (${ev.num_turns} turns, ${Math.round(ev.duration_ms / 1000)}s)`)
   } else if (ev.type === 'init') {
     line('meta', `[session] model=${ev.model} cwd=${ev.cwd}`)
   } else if (ev.type === 'info') {
     current = null
-    line('meta', ev.text)
+    const cls = ev.text.includes('crashed') ? 'warn' : 'meta'
+    line(cls, ev.text)
+    if (ev.text.includes('restarting')) setBusy(false)
   } else if (ev.type === 'error') {
     current = null
-    line('error', 'ERROR: ' + ev.message)
+    rawText = ''
+    setBusy(false)
+    line('error', '⚠ ' + ev.message)
   }
 }
-es.onerror = () => line('error', '(connection lost, reconnecting…)')
+es.onerror = () => {
+  setBusy(false)
+  line('warn', '⚡ connection lost — reconnecting…')
+}
 
 // ---- image attachment ----
 let pendingImage = null // { data: base64, mediaType, objectUrl }
@@ -290,6 +387,7 @@ document.addEventListener('paste', (e) => {
 async function send() {
   const text = input.value.trim()
   if (!text && !pendingImage) return
+  if (isBusy) return
   input.value = ''
   const body = { text }
   if (pendingImage) {
