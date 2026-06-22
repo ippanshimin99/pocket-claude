@@ -176,23 +176,29 @@ async function canUseTool(toolName, input) {
 
 // ---- persistent SDK session (streaming input mode) -----------------------
 let slashCommands = [] // filled from the SDK's system/init message
-const queue = []
-let wake = null
+
+// セッションごとに queue/wake/killed を持たせる。
+// モジュール全体で1個の wake を共有すると、新セッション開始時に古い
+// generator が永遠に起きられず、配下のSDKサブプロセスがゾンビ化するため。
+let activeSession = null // { queue, wake, killed }
 
 function pushUserMessage(text, image = null) {
-  queue.push({ text, image })
-  if (wake) {
-    wake()
-    wake = null
+  if (!activeSession) return
+  activeSession.queue.push({ text, image })
+  if (activeSession.wake) {
+    activeSession.wake()
+    activeSession.wake = null
   }
 }
 
-async function* userMessages() {
+async function* userMessages(session) {
   while (true) {
-    while (queue.length === 0) {
-      await new Promise((resolve) => (wake = resolve))
+    if (session.killed) return
+    while (session.queue.length === 0 && !session.killed) {
+      await new Promise((resolve) => { session.wake = resolve })
     }
-    const { text, image } = queue.shift()
+    if (session.killed) return
+    const { text, image } = session.queue.shift()
     let content
     if (image) {
       content = [
@@ -221,8 +227,23 @@ function drainPermissions() {
   pendingPermissions.clear()
 }
 
+// 現在のセッションを確実に終了させる（generator kill + interrupt）。
+// これを呼ばずに startSession() を再度呼ぶと、古いSDKサブプロセスが
+// ゾンビ化して残り続ける（実際に発生した不具合）。
+async function killCurrentSession() {
+  if (activeSession) {
+    activeSession.killed = true
+    if (activeSession.wake) { activeSession.wake(); activeSession.wake = null }
+  }
+  if (q) {
+    try { await q.interrupt() } catch { /* セッションが既に終了していれば失敗してよい */ }
+  }
+}
+
 async function startSession() {
   const myId = ++sessionId
+  const session = { queue: [], wake: null, killed: false }
+  activeSession = session
   const contextContent = loadContext()
 
   const appendLines = [
@@ -240,7 +261,7 @@ async function startSession() {
   }
 
   q = query({
-    prompt: userMessages(),
+    prompt: userMessages(session),
     options: {
       ...(config.model ? { model: config.model } : {}),
       cwd: config.cwd,
@@ -292,6 +313,7 @@ async function startSession() {
     }
   } catch (err) {
     if (sessionId !== myId) return
+    session.killed = true // generatorが生きていれば確実に終了させる
     broadcast({ type: 'error', message: String(err) })
     console.error('[pocket-claude] session error:', err)
     drainPermissions()
@@ -405,7 +427,7 @@ app.post('/message', async (req, res) => {
     drainPermissions()
     broadcast({ type: 'clear' })
     broadcast({ type: 'info', text: '(context.md を読み込んでセッションを再起動します…)' })
-    try { await q?.interrupt() } catch {}
+    await killCurrentSession()
     setTimeout(startSession, 300)
     return res.json({ ok: true })
   }
